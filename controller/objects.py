@@ -1,0 +1,311 @@
+"""Object lifecycle and bounded, database-verified worker transfers.
+
+Recovery imports object_lock to serialize destructive changes to the same object.
+HTTP and file I/O occur outside SQLite transactions. Worker failures never publish
+an incomplete upload or start an unverified successful download response.
+"""
+import asyncio
+import hashlib
+import logging
+import os
+import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from uuid import uuid4
+
+import anyio
+import httpx
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from starlette.responses import FileResponse
+
+from . import config, database as db
+from .models import MetadataPatch, StoreError, parse_metadata, safe_content_type, safe_filename
+from .placement import InsufficientWorkers, choose_workers
+
+router = APIRouter(prefix="/api/v1/objects", tags=["objects"])
+log = logging.getLogger("controller")
+_locks: dict[str, list] = {}
+
+
+async def _run_sync(function, *args, on_cancel=None, **kwargs):
+    """Finish an owned thread operation before cancellation releases its resources."""
+    task = asyncio.create_task(run_in_threadpool(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            result = await task
+        except Exception:
+            log.exception("CANCELLED_OPERATION_FAILED operation=%s", function.__name__)
+        else:
+            if on_cancel is not None:
+                on_cancel(result)
+        raise
+
+
+def _discard_temp(result) -> None:
+    fd, filename = result
+    try:
+        os.close(fd)
+    finally:
+        remove_download(Path(filename))
+
+
+@asynccontextmanager
+async def object_lock(object_id: str):
+    """Reference-count waiters too, so cancellation cannot split a shared lock."""
+    entry = _locks.setdefault(object_id, [asyncio.Lock(), 0])
+    entry[1] += 1
+    acquired = False
+    try:
+        await entry[0].acquire()
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            entry[0].release()
+        entry[1] -= 1
+        if entry[1] == 0:
+            del _locks[object_id]
+
+
+async def iter_chunks(file: UploadFile) -> AsyncIterator[bytes]:
+    while data := await file.read(config.CHUNK_SIZE):
+        yield data
+
+
+def public_manifest(obj: dict) -> dict:
+    result = {k: v for k, v in obj.items() if k != "chunks"}
+    result["chunks"] = [{"chunk_id": c["chunk_id"], "index": c["chunk_index"],
+        "size": c["size"], "sha256": c["sha256"],
+        "workers": [r["worker_id"] for r in c["replicas"] if r["state"] == "HEALTHY"],
+        "replicas": [{k: r[k] for k in ("worker_id", "state", "worker_status", "last_verified_at")}
+                     for r in c["replicas"]]} for c in obj["chunks"]]
+    return result
+
+
+def ready_manifest(object_id: str) -> dict:
+    obj = db.get_object_manifest(object_id)
+    if obj is None or obj["status"] != "READY":
+        raise StoreError(404, "OBJECT_NOT_FOUND", "Object does not exist")
+    return obj
+
+
+async def _delete_copy(http: httpx.AsyncClient, chunk_id: str, replica: dict) -> bool:
+    try:
+        response = await http.delete(f'{replica["base_url"]}/internal/chunks/{chunk_id}')
+        if response.status_code == 204:
+            return True
+        log.warning("DELETE_DEFERRED chunk=%s worker=%s status=%s", chunk_id, replica["worker_id"], response.status_code)
+    except httpx.HTTPError:
+        log.warning("DELETE_DEFERRED chunk=%s worker=%s", chunk_id, replica["worker_id"])
+    return False
+
+
+async def discard_object(http: httpx.AsyncClient, object_id: str) -> None:
+    """Caller holds object_lock; offline remnants become orphans on rejoin."""
+    obj = await _run_sync(db.get_object_manifest, object_id)
+    if obj is None:
+        return
+    for chunk in obj["chunks"]:
+        for replica in chunk["replicas"]:
+            await _delete_copy(http, chunk["chunk_id"], replica)
+    await _run_sync(db.delete_object_record, object_id)
+
+
+async def cleanup_abandoned(http: httpx.AsyncClient) -> None:
+    for oid in await _run_sync(db.get_abandoned_object_ids):
+        async with object_lock(oid):
+            await discard_object(http, oid)
+
+
+async def _put_copy(http: httpx.AsyncClient, chunk: dict, worker: dict, data: bytes) -> bool:
+    # Persist uncertainty BEFORE the request: a lost response may still mean a stored copy.
+    await _run_sync(db.upsert_replica, chunk["chunk_id"], worker["worker_id"], "PENDING_DELETE")
+    for _ in range(2):
+        try:
+            response = await http.put(f'{worker["base_url"]}/internal/chunks/{chunk["chunk_id"]}',
+                content=data, headers={"X-Chunk-SHA256": chunk["sha256"], "Content-Type": "application/octet-stream"})
+            if response.status_code not in {200, 201}:
+                break
+            ack = response.json()
+            if not isinstance(ack, dict) or any(ack.get(k) != chunk[k] for k in ("chunk_id", "size", "sha256")):
+                break
+            await _run_sync(db.upsert_replica, chunk["chunk_id"], worker["worker_id"], "HEALTHY")
+            return True
+        except (httpx.HTTPError, ValueError):
+            log.warning("PUT_RETRY object=%s chunk=%s worker=%s", chunk["object_id"], chunk["chunk_id"], worker["worker_id"])
+    return False
+
+
+async def _store_chunk(http: httpx.AsyncClient, chunk: dict, data: bytes) -> None:
+    tried: set[str] = set()
+    stored = 0
+    while stored < config.REPLICATION_FACTOR:
+        workers = await _run_sync(db.get_workers)
+        try:
+            worker = choose_workers(workers, tried, 1)[0]
+        except InsufficientWorkers as exc:
+            raise StoreError(503, "STORAGE_UNAVAILABLE", "Cannot obtain two confirmed replicas for a chunk") from exc
+        tried.add(worker["worker_id"])
+        if await _put_copy(http, chunk, worker, data):
+            stored += 1
+    for replica in await _run_sync(db.get_replicas, chunk["chunk_id"]):
+        if replica["state"] == "PENDING_DELETE" and await _delete_copy(http, chunk["chunk_id"], replica):
+            await _run_sync(db.delete_replica_record, chunk["chunk_id"], replica["worker_id"])
+
+
+@router.post("", status_code=201)
+async def upload_object(request: Request, file: UploadFile = File(...), metadata: str | None = Form(None)):
+    custom = parse_metadata(metadata)
+    name = safe_filename(file.filename)
+    oid = str(uuid4())
+    http = request.app.state.http
+    async with object_lock(oid):
+        try:
+            await _run_sync(db.create_object, oid, name, safe_content_type(file.content_type), custom)
+            whole_hash, size, count = hashlib.sha256(), 0, 0
+            async for data in iter_chunks(file):
+                chunk = {"chunk_id": f"{oid}_{count}", "object_id": oid,
+                         "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                await _run_sync(db.add_chunk, chunk["chunk_id"], oid, count, len(data), chunk["sha256"])
+                await _store_chunk(http, chunk, data)
+                whole_hash.update(data)
+                size += len(data)
+                count += 1
+            committed = await _run_sync(db.finalize_object, oid, size, count, whole_hash.hexdigest())
+            if not committed:
+                raise StoreError(503, "STORAGE_UNAVAILABLE", "Replica availability changed before upload commit")
+        except BaseException as exc:
+            # Cancellation also abandons the upload. Shield cleanup from request cancellation.
+            with anyio.CancelScope(shield=True):
+                await _run_sync(db.set_object_state, oid, "FAILED")
+                await discard_object(http, oid)
+            if isinstance(exc, OSError):
+                raise StoreError(503, "UPLOAD_STORAGE_UNAVAILABLE", "Upload temporary storage is unavailable") from exc
+            raise
+    log.info("OBJECT_READY object=%s size=%s chunks=%s", oid, size, count)
+    return public_manifest(await _run_sync(ready_manifest, oid))
+
+
+async def read_verified_chunk(http: httpx.AsyncClient, chunk: dict) -> bytes:
+    for replica in chunk["replicas"]:
+        if replica["state"] != "HEALTHY" or replica["worker_status"] != "ALIVE":
+            continue
+        state = None
+        try:
+            async with http.stream("GET", f'{replica["base_url"]}/internal/chunks/{chunk["chunk_id"]}') as response:
+                if response.status_code == 404:
+                    state = "MISSING"
+                elif response.status_code == 409:
+                    state = "CORRUPT"
+                elif response.status_code == 200:
+                    data = bytearray()
+                    async for part in response.aiter_bytes(chunk_size=65_536):
+                        data.extend(part)
+                        if len(data) > chunk["size"]:
+                            break
+                    if len(data) == chunk["size"] and hashlib.sha256(data).hexdigest() == chunk["sha256"]:
+                        return bytes(data)
+                    state = "CORRUPT"
+        except httpx.HTTPError:
+            log.warning("READ_UNAVAILABLE chunk=%s worker=%s", chunk["chunk_id"], replica["worker_id"])
+        if state:
+            await _run_sync(db.set_replica_state, chunk["chunk_id"], replica["worker_id"], state)
+            log.warning("REPLICA_%s chunk=%s worker=%s", state, chunk["chunk_id"], replica["worker_id"])
+    raise StoreError(503, "OBJECT_UNAVAILABLE", "No verified readable copy of a required chunk")
+
+
+def remove_download(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        log.exception("TEMP_CLEANUP_FAILED file=%s", path.name)
+
+
+class VerifiedFileResponse(FileResponse):
+    """Release verified temp data even if sending the response is interrupted."""
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with anyio.CancelScope(shield=True):
+                await _run_sync(remove_download, Path(self.path))
+
+
+async def _prepare_download(http: httpx.AsyncClient, obj: dict) -> Path:
+    path = None
+    try:
+        fd, filename = await _run_sync(tempfile.mkstemp, prefix="download-", suffix=".tmp",
+                                      dir=config.DOWNLOAD_TEMP_DIR, on_cancel=_discard_temp)
+        path = Path(filename)
+        whole_hash, size = hashlib.sha256(), 0
+        try:
+            output = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with output:
+            if len(obj["chunks"]) != obj["num_chunks"]:
+                raise StoreError(503, "OBJECT_UNAVAILABLE", "Object manifest is incomplete")
+            for index, chunk in enumerate(obj["chunks"]):
+                if chunk["chunk_index"] != index:
+                    raise StoreError(503, "OBJECT_UNAVAILABLE", "Object manifest is out of order")
+                data = await read_verified_chunk(http, chunk)
+                await _run_sync(output.write, data)
+                whole_hash.update(data)
+                size += len(data)
+        if size != obj["size"] or whole_hash.hexdigest() != obj["sha256"]:
+            raise StoreError(503, "OBJECT_UNAVAILABLE", "Object failed complete integrity verification")
+        return path
+    except BaseException:
+        if path is not None:
+            remove_download(path)
+        raise
+
+
+@router.get("")
+def list_objects():
+    return db.list_objects()
+
+
+@router.get("/{object_id}/metadata")
+def get_metadata(object_id: str):
+    return public_manifest(ready_manifest(object_id))
+
+
+@router.patch("/{object_id}/metadata")
+async def patch_metadata(object_id: str, body: MetadataPatch):
+    async with object_lock(object_id):
+        try:
+            found = await _run_sync(db.patch_metadata, object_id, body.metadata)
+        except ValueError as exc:
+            raise StoreError(400, "INVALID_METADATA", "Merged metadata exceeds the size limit") from exc
+        if not found:
+            raise StoreError(404, "OBJECT_NOT_FOUND", "Object does not exist")
+        return public_manifest(await _run_sync(ready_manifest, object_id))
+
+
+@router.get("/{object_id}")
+async def download_object(request: Request, object_id: str):
+    async with object_lock(object_id):
+        obj = await _run_sync(ready_manifest, object_id)
+        try:
+            path = await _prepare_download(request.app.state.http, obj)
+        except OSError as exc:
+            log.exception("DOWNLOAD_STORAGE_FAILED object=%s", object_id)
+            raise StoreError(503, "TEMP_STORAGE_UNAVAILABLE", "Download temporary storage is unavailable") from exc
+    return VerifiedFileResponse(path, filename=obj["name"], media_type=obj["content_type"],
+        headers={"X-Object-SHA256": obj["sha256"], "ETag": f'"{obj["sha256"]}"'})
+
+
+@router.delete("/{object_id}", status_code=204)
+async def delete_object(request: Request, object_id: str):
+    async with object_lock(object_id):
+        await _run_sync(ready_manifest, object_id)
+        await _run_sync(db.set_object_state, object_id, "DELETING")
+        await discard_object(request.app.state.http, object_id)
+    log.info("OBJECT_DELETED object=%s", object_id)
+    return Response(status_code=204)
