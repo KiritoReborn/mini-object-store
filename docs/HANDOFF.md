@@ -32,7 +32,8 @@ Implementation started 14 November 2026 (India time). Update this section at eac
 - The controlled check explicitly verified inventories and supplied eligibility in test-only code because B's production reconciler is missing. This is A integration evidence, not a completed C1/C4 release gate.
 - Test-only containers, volumes and private network were removed. Existing project volumes were untouched. A's application code builds with the existing controller Dockerfile; no new application dependency was added.
 - Final verification: the full suite also passed from the freshly built controller image: **93 passed, 1 existing deprecation warning**. Pytest configuration now gives async fixtures an explicit function scope, removing the earlier scope-configuration warning without suppressing dependency warnings.
-- Current work: record feature-branch commit/publication status and hand off B's remaining integration tasks. No application behavior remains intentionally unfinished within A's documented scope; B-dependent release gates remain pending.
+- Publication: implementation commit **b9cf180** was pushed successfully to `origin/feature/controller`. The feature branch tracks that remote branch; no merge to master was performed. This documentation follow-up records that successful publication.
+- Current work: A's implementation is handed off. Continue with B's remaining integration tasks below. No application behavior remains intentionally unfinished within A's documented scope; B-dependent release gates remain pending.
 
 ## Validation
 
