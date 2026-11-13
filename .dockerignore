@@ -1,0 +1,15 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.env
+.env.*
+!.env.example
+data
+**/*.db
+**/*.db-wal
+**/*.db-shm
+compose.override.yaml
+stub_controller.py
+.DS_Store

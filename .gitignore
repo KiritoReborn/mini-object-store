@@ -1,3 +1,13 @@
-.venv/
 __pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+/data/
 *.db
+*.db-wal
+*.db-shm
+compose.override.yaml
+stub_controller.py
+.DS_Store
+.env
+
