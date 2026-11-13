@@ -1,0 +1,210 @@
+"""Short, synchronous SQLite transactions; never perform HTTP calls here.
+
+Public functions are also the direct import contract for recovery.py/status.py.
+Each call owns and closes its connection, so request threads share no connection.
+"""
+import hashlib
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+from . import config
+from .placement import heartbeat_is_fresh
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+@contextmanager
+def connection():
+    conn = sqlite3.connect(config.DATABASE_PATH, timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=5000")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    Path(config.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with connection() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+
+
+def prepare_restart() -> None:
+    with connection() as conn:
+        conn.execute("UPDATE workers SET status='JOINING'")
+        conn.execute("UPDATE objects SET status='FAILED' WHERE status='UPLOADING'")
+
+
+def register_worker(worker_id: str, base_url: str) -> None:
+    with connection() as conn:
+        conn.execute("""INSERT INTO workers VALUES (?, ?, ?, 'JOINING')
+            ON CONFLICT(worker_id) DO UPDATE SET base_url=excluded.base_url,
+            last_heartbeat=excluded.last_heartbeat, status='JOINING'""",
+            (worker_id, base_url, utc_now()))
+
+
+def touch_heartbeat(worker_id: str) -> bool:
+    with connection() as conn:
+        return conn.execute("UPDATE workers SET last_heartbeat=? WHERE worker_id=?",
+                            (utc_now(), worker_id)).rowcount == 1
+
+
+def set_worker_state(worker_id: str, state: str) -> None:
+    with connection() as conn:
+        conn.execute("UPDATE workers SET status=? WHERE worker_id=?", (state, worker_id))
+
+
+def transition_worker(worker_id: str, expected_heartbeat: str, state: str) -> bool:
+    """Compare-and-set prevents a stale liveness scan overwriting a new heartbeat."""
+    with connection() as conn:
+        return conn.execute("UPDATE workers SET status=? WHERE worker_id=? AND last_heartbeat=?",
+                            (state, worker_id, expected_heartbeat)).rowcount == 1
+
+
+def get_workers() -> list[dict]:
+    with connection() as conn:
+        return [dict(row) for row in conn.execute("""SELECT w.*,
+            (SELECT count(*) FROM replicas r JOIN chunks c USING(chunk_id)
+             JOIN objects o USING(object_id) WHERE r.worker_id=w.worker_id
+             AND r.state='HEALTHY' AND o.status IN ('UPLOADING','READY')) AS chunk_count
+            FROM workers w ORDER BY worker_id""")]
+
+
+def get_chunks_for_repair() -> list[dict]:
+    with connection() as conn:
+        return [dict(row) for row in conn.execute("""SELECT c.* FROM chunks c
+            JOIN objects o USING(object_id) WHERE o.status='READY'
+            ORDER BY c.object_id, c.chunk_index""")]
+
+
+def _replicas(conn, chunk_id: str) -> list[dict]:
+    return [dict(row) for row in conn.execute("""SELECT r.worker_id, r.state,
+        r.last_verified_at, w.base_url, w.status AS worker_status, w.last_heartbeat
+        FROM replicas r JOIN workers w USING(worker_id) WHERE r.chunk_id=?
+        ORDER BY r.worker_id""", (chunk_id,))]
+
+
+def get_replicas(chunk_id: str) -> list[dict]:
+    with connection() as conn:
+        return _replicas(conn, chunk_id)
+
+
+def upsert_replica(chunk_id: str, worker_id: str, state: str) -> None:
+    verified = utc_now() if state == "HEALTHY" else None
+    with connection() as conn:
+        conn.execute("""INSERT INTO replicas VALUES (?, ?, ?, ?)
+            ON CONFLICT(chunk_id, worker_id) DO UPDATE SET
+            state=excluded.state, last_verified_at=excluded.last_verified_at""",
+            (chunk_id, worker_id, state, verified))
+
+
+def set_replica_state(chunk_id: str, worker_id: str, state: str) -> None:
+    with connection() as conn:
+        conn.execute("""UPDATE replicas SET state=?, last_verified_at=?
+            WHERE chunk_id=? AND worker_id=?""",
+            (state, utc_now() if state == "HEALTHY" else None, chunk_id, worker_id))
+
+
+def delete_replica_record(chunk_id: str, worker_id: str) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM replicas WHERE chunk_id=? AND worker_id=?", (chunk_id, worker_id))
+
+
+def known_chunk_ids() -> set[str]:
+    with connection() as conn:
+        return {row[0] for row in conn.execute("""SELECT chunk_id FROM chunks
+            JOIN objects USING(object_id) WHERE status IN ('UPLOADING','READY')""")}
+
+
+def _object(row) -> dict:
+    result = dict(row)
+    result["metadata"] = json.loads(result.pop("custom_metadata_json"))
+    return result
+
+
+def get_object_manifest(object_id: str) -> dict | None:
+    with connection() as conn:
+        conn.execute("BEGIN")  # One consistent snapshot for object, chunks and replicas.
+        row = conn.execute("SELECT * FROM objects WHERE object_id=?", (object_id,)).fetchone()
+        if row is None:
+            return None
+        obj = _object(row)
+        obj["chunks"] = []
+        for row in conn.execute("SELECT * FROM chunks WHERE object_id=? ORDER BY chunk_index", (object_id,)):
+            chunk = dict(row)
+            chunk["replicas"] = _replicas(conn, chunk["chunk_id"])
+            obj["chunks"].append(chunk)
+        return obj
+
+
+def create_object(object_id: str, name: str, content_type: str, metadata: dict) -> None:
+    now = utc_now()
+    with connection() as conn:
+        conn.execute("""INSERT INTO objects VALUES (?, ?, 0, ?, ?, ?, ?, 0, ?, 'UPLOADING')""",
+            (object_id, name, content_type, now, now, hashlib.sha256(b"").hexdigest(),
+             json.dumps(metadata, ensure_ascii=False, allow_nan=False)))
+
+
+def add_chunk(chunk_id: str, object_id: str, index: int, size: int, sha256: str) -> None:
+    with connection() as conn:
+        conn.execute("INSERT INTO chunks VALUES (?, ?, ?, ?, ?)", (chunk_id, object_id, index, size, sha256))
+
+
+def set_object_state(object_id: str, state: str) -> None:
+    with connection() as conn:
+        conn.execute("UPDATE objects SET status=? WHERE object_id=?", (state, object_id))
+
+
+def finalize_object(object_id: str, size: int, num_chunks: int, sha256: str) -> bool:
+    with connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        chunks = conn.execute("SELECT * FROM chunks WHERE object_id=? ORDER BY chunk_index", (object_id,)).fetchall()
+        if len(chunks) != num_chunks or sum(c["size"] for c in chunks) != size:
+            return False
+        for index, chunk in enumerate(chunks):
+            eligible = {r["worker_id"] for r in _replicas(conn, chunk["chunk_id"])
+                        if r["state"] == "HEALTHY" and r["worker_status"] == "ALIVE"
+                        and heartbeat_is_fresh(r["last_heartbeat"])}
+            if chunk["chunk_index"] != index or len(eligible) < config.REPLICATION_FACTOR:
+                return False
+        return conn.execute("""UPDATE objects SET size=?, num_chunks=?, sha256=?, status='READY'
+            WHERE object_id=? AND status='UPLOADING'""", (size, num_chunks, sha256, object_id)).rowcount == 1
+
+
+def list_objects() -> list[dict]:
+    with connection() as conn:
+        return [_object(row) for row in conn.execute("SELECT * FROM objects WHERE status='READY' ORDER BY created_at, object_id")]
+
+
+def patch_metadata(object_id: str, changes: dict) -> bool:
+    with connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT custom_metadata_json FROM objects WHERE object_id=? AND status='READY'", (object_id,)).fetchone()
+        if row is None:
+            return False
+        metadata = json.loads(row[0])
+        metadata.update(changes)
+        encoded = json.dumps(metadata, ensure_ascii=False, allow_nan=False)
+        if len(encoded.encode("utf-8")) > config.MAX_METADATA_BYTES:
+            raise ValueError("Merged metadata exceeds the size limit")
+        conn.execute("UPDATE objects SET custom_metadata_json=?, updated_at=? WHERE object_id=?", (encoded, utc_now(), object_id))
+        return True
+
+
+def delete_object_record(object_id: str) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM objects WHERE object_id=?", (object_id,))
+
+
+def get_abandoned_object_ids() -> list[str]:
+    with connection() as conn:
+        return [row[0] for row in conn.execute("SELECT object_id FROM objects WHERE status IN ('FAILED','DELETING')")]

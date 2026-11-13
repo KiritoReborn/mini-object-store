@@ -1,4 +1,15 @@
-# Mini Distributed Cloud Object Store — workers
+# Mini Distributed Cloud Object Store
+
+Member A's controller and Member B's worker foundation are implemented. The
+controller provides all six object APIs, persistent SQLite metadata, placement,
+replicated upload, verified download, and registration/heartbeat endpoints.
+See [the controller guide](docs/CONTROLLER.md), [current handoff](docs/HANDOFF.md),
+and [shared contracts](contracts/db-helpers.md) before continuing development.
+
+**Integration pending:** B's recovery/status/CLI are not delivered yet. Registered
+workers safely stay JOINING, so nonempty uploads return 503 until inventory
+reconciliation promotes them to ALIVE. `/health` reports `recovery_available`.
+Neither registration nor heartbeat is a promotion shortcut.
 
 The workers store chunks under `/data/chunks`, using one named Docker volume per
 worker. The controller's SQLite hash remains the source of truth for integrity;
@@ -6,17 +17,22 @@ the worker sidecar is a local self-check.
 
 ## Run locally
 
-The controller application must provide `controller/main.py` with a FastAPI
-`app`. That application is not present in this checkout yet. Until it is added,
-start only the workers:
+The controller entry point is `controller/main.py`, matching the existing
+Dockerfile. Start the five-service stack:
+
+```sh
+docker compose up --build -d
+docker compose ps
+```
+
+To run only the worker services:
 
 ```sh
 docker compose up --build -d worker1 worker2 worker3 worker4
 docker compose ps
 ```
 
-Once the controller application is available, use `docker compose up --build -d`
-for the full stack. Workers retry registration while the controller is offline,
+Workers retry registration while the controller is offline,
 accept any 2xx registration response, and re-register after a heartbeat 404.
 Heartbeats use a five-second interval by default and finite HTTP timeouts.
 
@@ -37,7 +53,10 @@ With Python 3.12 and the packages in `requirements.txt` installed:
 python -m pytest tests/test_worker.py -v
 ```
 
-Tests isolate storage in temporary directories and mock controller requests.
+Tests isolate storage in temporary directories and replace external HTTP only.
+For the complete suite on Windows, use the Linux Docker test command in the
+controller guide; worker directory syncing is Linux-specific. A repeatable
+controlled four-worker integration check is documented there too.
 
 ## Known limitations
 
