@@ -6,6 +6,19 @@ replicated upload, verified download, and registration/heartbeat endpoints.
 See [the controller guide](docs/CONTROLLER.md), [current handoff](docs/HANDOFF.md),
 and [shared contracts](contracts/db-helpers.md) before continuing development.
 
+**Web workspace:** the Artaud dashboard is served at `http://localhost:8000/` by
+the controller. It includes file search/filter/sort, a multi-file upload queue,
+downloads, metadata editing, chunk locations, delete confirmation and live node
+summaries. Its built assets ship with the controller; no Node server is needed
+in Docker. See [frontend development and verification](docs/FRONTEND.md) and
+[the design system](DESIGN.md).
+
+**Live system explorer:** choose Cluster for controller/worker wiring, recent
+transfer animation and replay, per-file chunk placement, storage distribution,
+recovery observations and JSON diagnostic exports. See [the visual system guide](docs/LIVE_SYSTEM.md).
+Windows startup is available through `scripts/Start-Artaud.ps1`; [Member A readiness](docs/MEMBER_A_READY.md)
+records the one-command setup and the remaining shared integration boundary.
+
 **Integration pending:** B's recovery/status/CLI are not delivered yet. Registered
 workers safely stay JOINING, so nonempty uploads return 503 until inventory
 reconciliation promotes them to ALIVE. `/health` reports `recovery_available`.

@@ -5,19 +5,22 @@ import logging
 import sqlite3
 from contextlib import asynccontextmanager, suppress
 from importlib import import_module
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
-from . import config, database as db, objects
+from . import config, dashboard, database as db, objects
 from .models import Heartbeat, Registration, StoreError
 
 log = logging.getLogger("controller")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+STATIC_DIR = Path(__file__).with_name("static")
 
 
 def _optional_module(name: str):
@@ -68,8 +71,11 @@ def create_app(*, worker_transport=None) -> FastAPI:
 
     app = FastAPI(title="Mini Distributed Object Store - Controller", version="0.2.0", lifespan=lifespan)
     app.include_router(objects.router)
+    app.include_router(dashboard.router)
     if status is not None:
         app.include_router(status.router)
+    if (STATIC_DIR / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="dashboard-assets")
 
     @app.exception_handler(StoreError)
     async def store_error(request: Request, exc: StoreError):
@@ -92,6 +98,13 @@ def create_app(*, worker_transport=None) -> FastAPI:
     async def unexpected_error(request: Request, exc: Exception):
         log.exception("REQUEST_FAILED path=%s", request.url.path)
         return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "Controller failed to process request"})
+
+    @app.get("/", include_in_schema=False)
+    def dashboard_index():
+        index = STATIC_DIR / "index.html"
+        if not index.is_file():
+            raise StoreError(503, "DASHBOARD_UNAVAILABLE", "The dashboard build is unavailable")
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
     @app.get("/health", tags=["internal"])
     def health():

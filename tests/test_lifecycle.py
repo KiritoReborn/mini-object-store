@@ -6,6 +6,8 @@ from threading import Event
 from types import SimpleNamespace
 
 import httpx
+import anyio
+import pytest
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
 from starlette.requests import Request
@@ -80,7 +82,8 @@ def test_recovery_hooks_support_awaitable_start_and_stop(tmp_path, monkeypatch):
     assert events == ["start", "stop"]
 
 
-def test_cancelled_temp_acquisition_does_not_leave_a_late_file_or_descriptor(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cancellation", ["task", "repeated-task", "anyio-scope"])
+def test_cancelled_temp_acquisition_does_not_leave_a_late_file_or_descriptor(tmp_path, monkeypatch, cancellation):
     from controller import config, objects
     monkeypatch.setattr(config, "DOWNLOAD_TEMP_DIR", tmp_path)
     entered, release, finished = Event(), Event(), Event()
@@ -99,15 +102,28 @@ def test_cancelled_temp_acquisition_does_not_leave_a_late_file_or_descriptor(tmp
 
     async def scenario():
         obj = {"chunks": [], "size": 0, "num_chunks": 0, "sha256": hashlib.sha256(b"").hexdigest()}
-        task = asyncio.create_task(objects._prepare_download(None, obj))
+        scopes = []
+
+        async def prepare():
+            with anyio.CancelScope() as scope:
+                scopes.append(scope)
+                return await objects._prepare_download(None, obj)
+
+        task = asyncio.create_task(prepare())
         assert await asyncio.to_thread(entered.wait, 3)
-        task.cancel()
+        if cancellation == "anyio-scope":
+            scopes[0].cancel()
+        else:
+            task.cancel("original cancellation")
+        await asyncio.sleep(0)
+        if cancellation == "repeated-task":
+            task.cancel("later cancellation")
         await asyncio.sleep(0)
         release.set()
         try:
             await task
-        except asyncio.CancelledError:
-            pass
+        except asyncio.CancelledError as exc:
+            assert str(exc) == "original cancellation"
         assert await asyncio.to_thread(finished.wait, 3)
 
     asyncio.run(scenario())
