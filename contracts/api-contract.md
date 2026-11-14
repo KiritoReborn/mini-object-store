@@ -21,6 +21,12 @@ An upload returns 201 only after every chunk has two acknowledged hash-valid wri
 
 DELETE of unknown/already-deleted object returns 404. Offline bytes are removed by B's eventual reconciliation; a 204 does not claim an offline disk has already been erased. No public upload-idempotency key, authentication or range-upload protocol is implemented.
 
+## Dashboard extension (Member A)
+
+`GET /` serves the built dashboard with no-cache HTML; `/assets/*` serves only built assets. Missing API routes remain 404 and do not become SPA HTML. A missing build returns JSON 503.
+
+`GET /api/v1/overview` is read-only and separate from B's `/admin/status`. It returns object_count/logical_bytes/chunk_count for READY objects; healthy_replica_count/under_replicated_chunks/corrupt_replicas; worker_count/available_workers; replication_factor/chunk_size/recovery_available; and workers with worker_id/status/last_heartbeat/heartbeat_age_seconds/available/chunk_count/stored_bytes. Healthy availability requires ALIVE and a fresh timezone-aware heartbeat. Recorded worker copies/bytes include active uploads and READY data; they are not physical disk capacity. An aware future heartbeat is unavailable and has negative age; invalid/absent times have null age. The UI treats clock mismatch and stale snapshots explicitly.
+
 ## Worker -> controller
 
 - `POST /internal/workers/register`: `{"worker_id":"worker1","base_url":"http://worker1:8001"}` -> 200 `{worker_id,status:"registered"}`. Upsert JOINING, never auto-promote.

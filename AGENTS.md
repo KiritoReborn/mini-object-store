@@ -2,6 +2,8 @@
 
 Read `docs/HANDOFF.md` before continuing an existing task. It records the current implementation, verification, decisions and remaining work. `docs/CONTROLLER.md` is the controller guide; `contracts/api-contract.md` and `contracts/db-helpers.md` define the integration boundary.
 
+For frontend work also read PRODUCT.md, DESIGN.md and docs/FRONTEND.md. Edit frontend/src, then regenerate controller/static with npm run build. Keep QA fixtures out of the runtime bundle. The web UI uses the real same-origin APIs and must preserve stale/unknown availability instead of manufacturing health.
+
 ## Ownership
 
 Member A owns controller main/config/models/database/schema/placement/objects and their tests. Member B owns worker code, controller/recovery.py, controller/status.py, Dockerfiles/Compose, CLI and reliability tests. Contracts, README and end-to-end checks are shared. Coordinate changes across that boundary explicitly.

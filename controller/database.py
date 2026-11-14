@@ -79,6 +79,29 @@ def get_workers() -> list[dict]:
             FROM workers w ORDER BY worker_id""")]
 
 
+def get_overview_snapshot() -> dict:
+    """Read totals, recorded worker load and READY replicas in one snapshot."""
+    with connection() as conn:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        totals = dict(conn.execute("""SELECT count(*) AS object_count,
+            coalesce(sum(size), 0) AS logical_bytes FROM objects WHERE status='READY'""").fetchone())
+        totals["workers"] = [dict(row) for row in conn.execute("""SELECT
+            w.worker_id, w.status, w.last_heartbeat,
+            coalesce(load.chunk_count, 0) AS chunk_count,
+            coalesce(load.stored_bytes, 0) AS stored_bytes
+            FROM workers w LEFT JOIN (
+                SELECT r.worker_id, count(*) AS chunk_count, sum(c.size) AS stored_bytes
+                FROM replicas r JOIN chunks c USING(chunk_id) JOIN objects o USING(object_id)
+                WHERE r.state='HEALTHY' AND o.status IN ('UPLOADING','READY')
+                GROUP BY r.worker_id
+            ) AS load USING(worker_id) ORDER BY w.worker_id""")]
+        totals["replicas"] = [dict(row) for row in conn.execute("""SELECT
+            c.chunk_id, r.worker_id, r.state FROM chunks c JOIN objects o USING(object_id)
+            LEFT JOIN replicas r USING(chunk_id) WHERE o.status='READY'""")]
+        return totals
+
+
 def get_chunks_for_repair() -> list[dict]:
     with connection() as conn:
         return [dict(row) for row in conn.execute("""SELECT c.* FROM chunks c

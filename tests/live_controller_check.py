@@ -8,6 +8,7 @@ import argparse
 import json
 import subprocess
 import uuid
+from pathlib import Path
 
 
 PROBE = r'''
@@ -156,6 +157,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controller-image", required=True)
     parser.add_argument("--worker-image", required=True)
+    parser.add_argument("--browser", action="store_true", help="Also check the built dashboard with a real Chromium browser")
     args = parser.parse_args()
     prefix = "object-store-check-" + uuid.uuid4().hex[:10]
     containers, volumes = [], []
@@ -180,14 +182,29 @@ def main():
             name = prefix + "-" + service
             command = ["run", "-d", "--name", name, "--network", prefix, "--network-alias", service,
                        "--mount", f"type=volume,source={volume},target=/data"]
+            if service == "controller" and args.browser:
+                command += ["-p", "127.0.0.1::8000"]
             if service != "controller":
                 command += ["-e", "WORKER_ID=" + service, "-e", "CONTROLLER_URL=http://controller:8000"]
             command.append(args.controller_image if service == "controller" else args.worker_image)
             docker(*command)
             containers.append(name)
+        def browser_check(stage):
+            port = docker("port", prefix + "-controller", "8000/tcp").rsplit(":", 1)[-1]
+            root = Path(__file__).resolve().parent.parent
+            result = subprocess.run(["node", str(root / "frontend/e2e/live-dashboard.mjs"),
+                                     "http://127.0.0.1:" + port, stage], cwd=root / "frontend",
+                                    capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError(result.stderr or result.stdout)
+            print(result.stdout.strip(), flush=True)
+        if args.browser:
+            browser_check("connecting")
         first = json.loads(probe("initial"))
         oid = first["object_id"]
         print("5,000,001-byte round-trip:", json.dumps(first), flush=True)
+        if args.browser:
+            browser_check("workflow")
         docker("stop", prefix + "-worker2")
         print(probe("fallback", oid), flush=True)
         docker("start", prefix + "-worker2")

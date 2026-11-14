@@ -35,13 +35,22 @@ async def _run_sync(function, *args, on_cancel=None, **kwargs):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        try:
-            result = await task
-        except Exception:
-            log.exception("CANCELLED_OPERATION_FAILED operation=%s", function.__name__)
-        else:
-            if on_cancel is not None:
-                on_cancel(result)
+        with anyio.CancelScope(shield=True):
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            try:
+                result = task.result()
+                if on_cancel is not None:
+                    on_cancel(result)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("CANCELLED_OPERATION_FAILED operation=%s", function.__name__)
         raise
 
 

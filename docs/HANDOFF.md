@@ -4,6 +4,10 @@ Read this file first when continuing in Codex, Claude or a new chat.
 
 ## Scope and baseline
 
+**New user scope (14 November 2026):** complete remaining A work and add a fully connected frontend. Frontend lives in `frontend/`; generated build in `controller/static/` is served by the same controller. Read `docs/FRONTEND.md`, `PRODUCT.md` and `docs/dashboard-design.md` for this extension. Earlier A completion evidence below remains historical; the current extension adds a dashboard overview/static routes and extra cancellation hardening.
+
+**Current completion:** Member A's controller and frontend are implemented, built, tested and running locally at `http://localhost:8000/`. Source/build, design tokens, contracts and continuation notes are included in this feature-branch update. The earlier controller work was merged into `master` as `3e02c61`; this branch was synchronized with that merge without file conflicts. Use `git log` and the branch upstream for the exact current publication commit.
+
 - Member A owns controller config/models/database/placement/object APIs/main and their tests.
 - Member B owns worker code, recovery.py, status.py, Docker/Compose, CLI and reliability tests. Those files remain unchanged during A's implementation.
 - Baseline: `6a8d653`; working branch: `feature/controller`. User requested synchronization so the completed code can be pushed; any publication belongs on the feature branch, with no force push or merge to the shared branch.
@@ -37,7 +41,11 @@ Implementation started 14 November 2026 (India time). Update this section at eac
 
 ## Validation
 
-Latest full suite: 93 tests passed (42 existing worker + 51 controller). Worker disk synchronization is Linux-specific; use Linux Docker for the complete suite. Exact commands live in `docs/CONTROLLER.md`. `tests/live_controller_check.py` is the controlled Docker check. One Starlette TestClient/httpx deprecation remains upstream; dependencies were not changed to hide it.
+Frontend extension complete: read-only overview/static routes have 14 new tests; an audit added two repeated/AnyIO cancellation regressions and fixed their resource leak. Final backend suite **109 passed** (one existing upstream deprecation). Frontend boundary tests **13 passed**; Chromium workflow suite **12 passed**, including axe checks at desktop/inspector/mobile and regressions for queue removal, unrelated concurrent metadata changes, stale snapshot state, corruption-driven inspector refresh, modal feedback and keyboard search across views. TypeScript and production Vite build passed. Real four-worker browser upload/PATCH/chunk inspection/checksum download/delete also passed; the final controlled topology passed 5 MB+/50 MB transfer, worker stop, corruption fallback and controller restart checks. The author inspected desktop/mobile/inspector captures directly; the separate independent visual reviewer hit a service usage limit, so no independent visual approval is claimed. See docs/reviews/2026-11-14-dashboard-review.md. DESIGN.md and .impeccable/design.json record the built system; QA captures are ignored, not production data.
+
+Before the frontend extension, 93 tests passed (42 worker + 51 controller). The current backend total is 109 as above. Worker disk synchronization is Linux-specific; use Linux Docker for the complete suite. Exact commands live in `docs/CONTROLLER.md`; frontend commands are in `docs/FRONTEND.md`. `tests/live_controller_check.py --browser` adds real browser checks to the disposable Docker topology. One Starlette TestClient/httpx deprecation remains upstream; dependencies were not changed to hide it.
+
+Normal Compose is now running: controller + four workers; `/`, `/health` and `/api/v1/overview` return 200. All four workers register and heartbeat, but correctly remain JOINING because B's production reconciler is still absent. The UI truthfully shows storage connecting. No QA files or ALIVE shortcuts were inserted into the normal project database. Stop normally with `docker compose down` to preserve volumes; never use `-v` on project data casually.
 
 ## Remaining integration work (Member B + shared review)
 
