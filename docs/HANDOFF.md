@@ -7,7 +7,7 @@ Read this first in Codex, Claude or a new chat. Latest user instructions overrid
 - User is Member A. Build frontend/controller and a simple demo. **Do not implement or modify worker code or recovery**; Member B is implementing those.
 - Deployment choice: static frontend on Vercel; controller plus four Docker workers on the PC; one ngrok HTTPS address connects the browser directly to the backend. No nginx gateway, cloud database, VM or second application server. See DEMO.md.
 - An interim recovery experiment was used while investigating endless JOINING, then removed when the user explicitly reserved recovery for B. controller/recovery.py and its tests are absent. No interim recovery implementation is committed or published. Do not re-add it or manually promote workers.
-- Source branch: feature/controller. Earlier demo expansion 3ae2b93 and handoff 2f33556 were merged by the team in origin/master at **9b29954**. This checkout fast-forwarded to that merge before the connected-workspace expansion. Use git log/status for this expansion's publication commit. No force push or new shared-master merge was performed here.
+- Source branch: feature/controller. Earlier demo expansion 3ae2b93 and handoff 2f33556 were merged by the team in origin/master at **9b29954**. This checkout fast-forwarded to that merge, then published the connected-workspace expansion as **b50a86d** to origin/feature/controller. Post-push comparison was 0 ahead / 0 behind with a clean working tree. Later handoff-only commits may follow. No force push or new shared-master merge was performed here.
 
 ## What is implemented now
 
@@ -68,7 +68,7 @@ Actual local checks: Docker control API reported four running containers; worker
 
 ## Remaining work and safe continuation
 
-1. Publish the verified connected-workspace expansion on feature/controller and confirm remote hash. Earlier demo publication is complete. Worker source/recovery/status and frozen helper contracts remain unchanged.
+1. Connected-workspace source/research/review publication is complete on feature/controller (b50a86d), with matching remote hash. Worker source/recovery/status and frozen helper contracts remain unchanged. Actual Vercel deployment of this build awaits account access; do not confuse Git push with verified production publishing.
 2. B implements controller/recovery.py start_reconciler/stop_reconciler and status.py router, plus CLI/reliability integration. Shared API/helper/lock contracts are in contracts/*.md. No heartbeat promotion shortcut.
 3. User configures the private ngrok agent token locally (agent installation is done) and approves a fresh Vercel CLI device login. Start ngrok forwarding http://127.0.0.1:8000, verify public liveness/internal-route denial/auth/exact CORS, then set VITE_API_BASE_URL and redeploy only the existing frontend project after verifying team/project/environment. Never put the owner key in Vercel variables. Exact frontend CORS is already applied on the PC. Verify the actual deployed browser flows before claiming the connection complete.
 4. Run the final joint stop/fallback/repair/rejoin/corruption demonstration using B's actual reconciler. Existing tests/live_controller_check.py remains explicitly controlled A-only evidence with test-only eligibility; it does not prove B's production recovery.
