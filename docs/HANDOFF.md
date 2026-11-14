@@ -2,6 +2,72 @@
 
 Read this first in Codex, Claude or a new chat. Latest user instructions override the earlier planning history.
 
+## Member B recovery delivery - 14 November 2026
+
+The latest task explicitly authorizes B's production `controller/recovery.py` and
+`tests/test_recovery.py`. Those files are now implemented. Earlier statements
+below that recovery is absent describe the previous checkout/runtime, not this
+new source. No A-owned source, existing tests, workers, deployment controls,
+frontend, requirements or contracts were changed in this delivery.
+
+Implemented behavior:
+
+- A synchronous `start_reconciler()` returns None promptly; an **async**
+  `stop_reconciler()` cancels/awaits the task and closes its HTTP client. This
+  follows the current hookup in contracts/db-helpers.md and main.py; a synchronous
+  stop cannot drain async work before returning to that running event loop.
+- Serialized passes detect stale workers with startup grace and heartbeat CAS,
+  reconcile JOINING inventories, then repair READY chunks. Fresh DEAD workers
+  must pass JOINING again. Absent/invalid/future heartbeats do not grant admission.
+- Every retained/read-back copy is verified against SQLite size/SHA-256.
+  CORRUPT/MISSING copies are deleted before rewrite; failed targets do not become
+  HEALTHY. Surplus deletion requires two independently verified other copies.
+- All object mutations share objects.object_lock, reread current manifests, and
+  protect UPLOADING objects. Threaded DB calls drain before cancellation releases
+  the lock. HTTP origins are resolved from the DB for each request.
+- Live-worker inventories run once per minute to collect late ambiguous writes
+  and orphan/surplus copies. This does not periodically scrub HEALTHY file bytes.
+  Unavailable/no-target logs are throttled per chunk; deleted chunks' throttle
+  entries are pruned. Required demo log event names are present.
+- Tests replace `_runtime.client`, `.now` and `.monotonic`; `run_once()` is the
+  deterministic one-pass entry point. SQLite helpers remain direct imports and
+  keep their frozen signatures. No new dependency was added.
+
+Verification on this checkout:
+
+- `.venv/bin/python -m pytest tests/test_recovery.py -v --tb=short`: **65 passed**.
+  Includes at least one test for every numbered case 1-30, partial-stream and
+  cancellation cases, inventory errors, lock races and per-call HTTP timeouts.
+- The integration case uses the actual FastAPI lifespan/routes, SQLite helpers,
+  placement and B reconciler, with only worker HTTP replaced by MockTransport.
+  It verifies real admission, 5,000,001 bytes -> 6 chunks / 1-byte final chunk,
+  two-copy repair, rejoin trimming, DB-authoritative corruption fallback/repair,
+  and successful downloads. It does not manually supply worker eligibility.
+- Full suite in disposable Python 3.12 Linux Docker, read-only source mount,
+  network disabled: **281 passed, 2 failed**, one existing Starlette/httpx warning.
+  Both failures are A-owned expectations of `recovery_available: false` now that
+  recovery is installed: `tests/test_api.py:74` and `tests/test_dashboard.py:48`.
+  A should explicitly suppress the optional recovery module in those fixtures
+  when testing the absent-module scenario, or update the installed-module
+  expectations and isolate their external worker HTTP. They were left untouched
+  as required by the exclusive file scope. No all-green full-suite claim is made.
+
+Linux command used (no project volumes or published ports):
+
+```sh
+docker run --rm --network none \
+  --mount type=bind,source="$PWD",target=/review,readonly \
+  --workdir /review cloud_project-controller:latest \
+  python -B -m pytest -q -p no:cacheprovider \
+  --basetemp=/tmp/recovery-review --tb=short
+```
+
+Remaining integration: A's two absent-module fixture expectations need updating;
+B's status router, CLI and other previously pending work remain outside this
+task. No project service was rebuilt/restarted or volume changed. Run the joint
+five-container stop/start/corruption demo after deployment before claiming the
+live recovery gate. The mock-boundary integration test is not that live demo.
+
 ## Current scope and ownership
 
 - User is Member A. Build frontend/controller and a simple demo. **Do not implement or modify worker code or recovery**; Member B is implementing those.
