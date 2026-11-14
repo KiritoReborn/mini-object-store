@@ -50,3 +50,9 @@ B provides `controller/recovery.py` exporting `start_reconciler()` and `stop_rec
 B provides `controller/status.py` exporting `router: APIRouter`. A includes it in create_app. Existing modules with broken dependencies fail visibly; genuinely missing B modules leave `/health` reporting `recovery_available: false`, and workers stay JOINING. A's `/health` checks DB access and HTTP liveness; it is not proof of two-copy storage readiness.
 
 Other A-owned helpers are visible in database.py for object lifecycle. B should prefer the frozen names above; coordinate any additional shared dependency through this document.
+
+## A-only worker settings extension
+
+The additive worker_settings table stores display_name/notes and placement_enabled with a cascading foreign key to workers. Missing settings use empty labels/notes and placement enabled. Existing workers/replicas columns and frozen helper return shapes are unchanged.
+
+A uploads call get_placement_workers(), which returns the same shape as get_workers() while excluding placement-disabled nodes. B continues using get_workers(); a presentation pause does not silently change B's repair policy. get_managed_workers/connect_managed_worker/update_worker_settings/forget_worker serve the UI routes, not the frozen recovery boundary. Forget checks heartbeat and all replica states under a single immediate transaction; invalid, naive or future heartbeats remain protected. Settings events publish only after commit.

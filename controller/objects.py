@@ -179,7 +179,7 @@ async def _store_chunk(http: httpx.AsyncClient, chunk: dict, data: bytes) -> Non
     tried: set[str] = set()
     stored = 0
     while stored < config.REPLICATION_FACTOR:
-        workers = await _run_sync(db.get_workers)
+        workers = await _run_sync(db.get_placement_workers)
         try:
             worker = choose_workers(workers, tried, 1)[0]
         except InsufficientWorkers as exc:

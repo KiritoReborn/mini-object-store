@@ -10,4 +10,5 @@ compose.override.yaml
 stub_controller.py
 .DS_Store
 .env
+/test-results/
 

@@ -53,7 +53,7 @@ def system(tmp_path, monkeypatch):
         for index in range(1, 5):
             wid = f"worker{index}"
             database.register_worker(wid, f"http://{wid}:8001")
-            # B's reconciler is absent. Eligibility is supplied only by this test fixture.
+            # This unit fixture isolates transfer behavior; test_recovery covers admission.
             database.set_worker_state(wid, "ALIVE")
         yield client, state, database, tmp_path
 
@@ -266,7 +266,7 @@ def test_parallel_uploads_keep_distinct_objects_and_replica_pairs(system):
     client, _, db, _ = system
     with ThreadPoolExecutor(4) as pool:
         results = list(pool.map(lambda n: upload(client, bytes([n]) * 1000001), range(4)))
-    assert all(r.status_code == 201 for r in results)
+    assert all(r.status_code == 201 for r in results), [(r.status_code, r.text) for r in results]
     ids = {r.json()["object_id"] for r in results}
     assert len(ids) == 4
     for oid in ids:

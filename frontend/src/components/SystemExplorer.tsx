@@ -2,12 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Pause, Play, Workflow } from "lucide-react";
 import { useActivity } from "../useActivity";
 import { saveJson, timeLabel } from "../system";
-import type { ActivityEvent, Overview, StoredObject } from "../types";
+import type {
+  ActivityEvent,
+  ManagedWorkers,
+  Notify,
+  Overview,
+  StoredObject,
+} from "../types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ClusterPanel } from "./ClusterPanel";
 import { ObjectPlacement } from "./ObjectPlacement";
 import { DistributionChart, RecoveryPanel } from "./RecoveryPanel";
 import { TopologyMap } from "./TopologyMap";
+import { WorkerManager } from "./WorkerManager";
+import { DemoGuide } from "./DemoGuide";
 import "./system.css";
 
 export function SystemExplorer({
@@ -16,12 +24,20 @@ export function SystemExplorer({
   stale,
   capturedAt,
   onInspect,
+  managedWorkers,
+  onWorkersChanged,
+  notify,
+  pollInterval,
 }: {
   overview: Overview | null;
   objects: StoredObject[];
   stale: boolean;
   capturedAt: string | null;
   onInspect: (object: StoredObject) => void;
+  managedWorkers: ManagedWorkers | null;
+  onWorkersChanged: () => Promise<void>;
+  notify: Notify;
+  pollInterval: number;
 }) {
   const [paused, setPaused] = useState(false);
   const [snapshot, setSnapshot] = useState({
@@ -29,6 +45,7 @@ export function SystemExplorer({
     objects,
     stale,
     capturedAt,
+    managedWorkers,
   });
   const [workerId, setWorkerId] = useState("");
   const [objectId, setObjectId] = useState("");
@@ -36,14 +53,15 @@ export function SystemExplorer({
   const [replay, setReplay] = useState<ActivityEvent | null>(null);
   const [now, setNow] = useState(Date.now());
   const topology = useRef<HTMLDivElement>(null);
-  const activity = useActivity(paused);
+  const activity = useActivity(paused, pollInterval);
   const onHighlight = useCallback(
     (workers: string[] | null) => setHighlights(workers),
     [],
   );
   useEffect(() => {
-    if (!paused) setSnapshot({ overview, objects, stale, capturedAt });
-  }, [paused, overview, objects, stale, capturedAt]);
+    if (!paused)
+      setSnapshot({ overview, objects, stale, capturedAt, managedWorkers });
+  }, [paused, overview, objects, stale, capturedAt, managedWorkers]);
   useEffect(() => {
     if (paused) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -117,7 +135,7 @@ export function SystemExplorer({
             <small>
               {paused
                 ? `Paused at ${snapshot.capturedAt ? timeLabel(snapshot.capturedAt) : "an unavailable snapshot"}`
-                : "Observations refresh every 2 seconds"}
+                : `Observations refresh every ${pollInterval / 1000} seconds`}
             </small>
           </span>
         </div>
@@ -155,7 +173,9 @@ export function SystemExplorer({
           highlights={highlights}
         />
       </div>
+      <DemoGuide overview={snapshot.overview} stale={snapshot.stale} />
       <ObjectPlacement
+        pollInterval={pollInterval}
         objects={snapshot.objects}
         overview={snapshot.overview}
         stale={snapshot.stale}
@@ -166,6 +186,13 @@ export function SystemExplorer({
         onHighlight={onHighlight}
       />
       <div className="system-lower-grid">
+        <WorkerManager
+          state={snapshot.managedWorkers}
+          stale={snapshot.stale}
+          paused={paused}
+          onChanged={onWorkersChanged}
+          notify={notify}
+        />
         <div>
           <RecoveryPanel
             overview={snapshot.overview}

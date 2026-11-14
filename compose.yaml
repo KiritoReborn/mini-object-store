@@ -15,8 +15,11 @@ services:
       context: .
       dockerfile: Dockerfile.controller
     container_name: controller
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     volumes: [controller_data:/data]
+    environment:
+      ARTAUD_API_KEY: ${ARTAUD_API_KEY:-}
+      ARTAUD_ALLOWED_ORIGINS: ${ARTAUD_ALLOWED_ORIGINS:-}
 
   worker1:
     <<: *worker

@@ -98,6 +98,110 @@ def get_workers() -> list[dict]:
             FROM workers w ORDER BY worker_id""")]
 
 
+def get_placement_workers() -> list[dict]:
+    """A-side upload selection only; recovery's get_workers contract is unchanged."""
+    with connection() as conn:
+        return [dict(row) for row in conn.execute("""SELECT w.*,
+            (SELECT count(*) FROM replicas r JOIN chunks c USING(chunk_id)
+             JOIN objects o USING(object_id) WHERE r.worker_id=w.worker_id
+             AND r.state='HEALTHY' AND o.status IN ('UPLOADING','READY')) AS chunk_count
+            FROM workers w LEFT JOIN worker_settings s USING(worker_id)
+            WHERE coalesce(s.placement_enabled, 1)=1 ORDER BY worker_id""")]
+
+
+def heartbeat_is_stale_or_absent(timestamp: str | None) -> bool:
+    if timestamp is None:
+        return True
+    try:
+        heartbeat = datetime.fromisoformat(timestamp)
+        return (heartbeat.utcoffset() is not None
+                and (datetime.now(timezone.utc) - heartbeat).total_seconds() >= config.WORKER_DEAD_TIMEOUT)
+    except (ValueError, TypeError):
+        return False
+
+
+def _managed_workers(conn, worker_id: str | None = None) -> list[dict]:
+    workers = [dict(row) for row in conn.execute("""SELECT w.*,
+        coalesce(s.display_name, '') AS display_name, coalesce(s.notes, '') AS notes,
+        coalesce(s.placement_enabled, 1) AS placement_enabled,
+        (SELECT count(*) FROM replicas r WHERE r.worker_id=w.worker_id) AS replica_count,
+        coalesce(load.chunk_count, 0) AS chunk_count, coalesce(load.stored_bytes, 0) AS stored_bytes
+        FROM workers w LEFT JOIN worker_settings s USING(worker_id)
+        LEFT JOIN (
+            SELECT r.worker_id, count(*) AS chunk_count, sum(c.size) AS stored_bytes
+            FROM replicas r JOIN chunks c USING(chunk_id) JOIN objects o USING(object_id)
+            WHERE r.state='HEALTHY' AND o.status IN ('UPLOADING','READY') GROUP BY r.worker_id
+        ) AS load USING(worker_id)
+        WHERE (? IS NULL OR w.worker_id=?) ORDER BY w.worker_id""", (worker_id, worker_id))]
+    for worker in workers:
+        worker["placement_enabled"] = bool(worker["placement_enabled"])
+        worker["can_forget"] = worker["replica_count"] == 0 and heartbeat_is_stale_or_absent(worker["last_heartbeat"])
+    return workers
+
+
+def get_managed_workers() -> list[dict]:
+    with connection() as conn:
+        return _managed_workers(conn)
+
+
+def _write_worker_settings(conn, worker_id: str, changes: dict) -> bool:
+    if not changes:
+        return False
+    before = conn.execute("SELECT * FROM worker_settings WHERE worker_id=?", (worker_id,)).fetchone()
+    current = dict(before) if before else {"display_name": "", "notes": "", "placement_enabled": True}
+    fields = [key for key in ("display_name", "notes", "placement_enabled") if key in changes]
+    if not any(current[key] != changes[key] for key in fields):
+        return False
+    conn.execute("INSERT OR IGNORE INTO worker_settings(worker_id) VALUES (?)", (worker_id,))
+    conn.execute(f"UPDATE worker_settings SET {', '.join(key + '=?' for key in fields)} WHERE worker_id=?",
+                 (*[changes[key] for key in fields], worker_id))
+    return True
+
+
+def connect_managed_worker(worker_id: str, base_url: str, changes: dict) -> dict:
+    """Health was checked outside this atomic insert; an existing state is preserved."""
+    with connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        before = conn.execute("SELECT base_url FROM workers WHERE worker_id=?", (worker_id,)).fetchone()
+        if before and before[0] != base_url:
+            raise ValueError("Worker is already registered at a different origin")
+        if before is None:
+            conn.execute("INSERT INTO workers VALUES (?, ?, ?, 'JOINING')", (worker_id, base_url, utc_now()))
+        changed = _write_worker_settings(conn, worker_id, changes)
+        worker = _managed_workers(conn, worker_id)[0]
+    if before is None:
+        telemetry.record_event("worker_connected", worker_id=worker_id, state="JOINING")
+    if changed:
+        telemetry.record_event("worker_settings", worker_id=worker_id)
+    return worker
+
+
+def update_worker_settings(worker_id: str, changes: dict) -> dict | None:
+    with connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("SELECT 1 FROM workers WHERE worker_id=?", (worker_id,)).fetchone():
+            return None
+        changed = _write_worker_settings(conn, worker_id, changes)
+        worker = _managed_workers(conn, worker_id)[0]
+    if changed:
+        telemetry.record_event("worker_settings", worker_id=worker_id)
+    return worker
+
+
+def forget_worker(worker_id: str) -> str:
+    """Recheck liveness and every replica under the same write lock as deletion."""
+    with connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        workers = _managed_workers(conn, worker_id)
+        if not workers:
+            return "missing"
+        if not workers[0]["can_forget"]:
+            return "protected"
+        conn.execute("DELETE FROM workers WHERE worker_id=?", (worker_id,))
+    telemetry.record_event("worker_forgotten", worker_id=worker_id)
+    return "forgotten"
+
+
 def get_overview_snapshot() -> dict:
     """Read totals, recorded worker load and READY replicas in one snapshot."""
     with connection() as conn:

@@ -19,7 +19,26 @@ Object IDs are UUID4; chunk IDs are `<uuid>_<zero-based-index>`; default chunk s
 
 An upload returns 201 only after every chunk has two acknowledged hash-valid writes to eligible workers and the final metadata commit succeeds. Worker availability can change afterward. A download verifies every chunk and the entire object into controller-owned temporary storage before returning binary success; unavailable good copies return JSON 503. A connection interruption during file transmission is still a transport error.
 
-DELETE of unknown/already-deleted object returns 404. Offline bytes are removed by B's eventual reconciliation; a 204 does not claim an offline disk has already been erased. No public upload-idempotency key, authentication or range-upload protocol is implemented.
+DELETE of unknown/already-deleted object returns 404. Offline bytes are removed by B's eventual reconciliation; a 204 does not claim an offline disk has already been erased. No public upload-idempotency key or range-upload protocol is implemented.
+
+## Optional owner demo access (Member A)
+
+When ARTAUD_API_KEY is configured, every `/api/v1/*` request requires the matching `X-Artaud-Key` header; missing/wrong keys return 401. This is a shared owner key, not multi-user authentication. The browser keeps it only in page memory. Remote browser access requires an exact origin in ARTAUD_ALLOWED_ORIGINS; unsafe API requests reject other origins. Administrative mutations additionally require `X-Artaud-Admin: 1`. Public-host requests to `/internal/*` return 404; worker registration/heartbeats remain on the trusted Docker network. `/health` remains public liveness information.
+
+The optional Vercel frontend calls the PC's HTTPS API directly. File bodies do not pass through Vercel. Local-only use needs neither Vercel nor a tunnel. See [the simple demo setup](../docs/DEMO.md).
+
+## Worker administration and demo controls (Member A)
+
+| Method | Route | Behavior | Success |
+|---|---|---|---|
+| GET | `/api/v1/workers` | `{workers, placement_available_workers}`; worker profiles include base_url/status/heartbeat, availability, labels/notes, placement_enabled, replica_count, chunk_count/stored_bytes and can_forget | 200 |
+| POST | `/api/v1/workers/connect` | Required worker_id/base_url; optional display_name/notes. Only worker1..worker16 with exact `http://<worker_id>:8001`; bounded health/identity verification. New records JOINING; existing state preserved | 200 |
+| PATCH | `/api/v1/workers/{id}` | Nonempty subset of display_name (max 64), notes (max 512), placement_enabled (boolean); returns updated profile | 200 |
+| DELETE | `/api/v1/workers/{id}` | Atomic metadata-only forget; requires stale/absent heartbeat and zero replica records of every state. In-use 409; missing 404 | 204 |
+| GET | `/api/v1/demo/workers` | `{enabled, workers:[{worker_id, container_state, running}]}`; disabled returns false/empty list | 200 |
+| POST | `/api/v1/demo/workers/{id}/{action}` | Opt-in, authenticated start/stop/restart for existing worker1..worker4 only. Returns action and actual container state; missing container 404, identity mismatch 409, disabled/engine failure 503 | 200 |
+
+Placement pause affects subsequent A upload selections; reads, in-flight writes and B recovery policy remain separate. Connect does not create a container. Forget never deletes disks. Container actions require the optional Docker socket overlay and matching Compose project/service/name; no arbitrary target, shell, creation/deletion or volume removal is exposed. Actual container running state and controller storage eligibility are different facts. No action bypasses inventory verification or promotes a worker to ALIVE.
 
 ## Dashboard extension (Member A)
 

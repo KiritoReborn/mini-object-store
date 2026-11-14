@@ -27,3 +27,5 @@ The normal stack currently registers four workers, but its missing production re
 B must deliver recovery.py/status.py, CLI/reliability tests and the remaining Compose settings, accept the helper contract and run the joint failure/rejoin/corruption demonstrations. Member A's controlled live harness exercises real bytes/workers with **test-only** eligibility; it is not the production reconciler. The project is not fully release-complete until those shared gates pass.
 
 For a new Codex or Claude chat, read AGENTS.md then HANDOFF.md. Do not redo completed work, seed production data, or change B's functional files to disguise pending recovery.
+
+Optional frontend hosting and actual worker Start/Stop/Restart are documented in [DEMO.md](DEMO.md). The layout stays Vercel frontend, PC controller/workers and one HTTPS connection. Configure-Demo.ps1 creates an ignored owner key; when configured, enter it in Connection settings before using the APIs. Prefer http://127.0.0.1:8000/ for the local dashboard. This addition does not supply B's missing recovery module.

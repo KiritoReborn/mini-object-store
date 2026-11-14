@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { eventLabel, mergeActivity, replicaLabel } from "./system";
+import {
+  eventLabel,
+  mergeActivity,
+  replicaLabel,
+  quietActivity,
+} from "./system";
 import type { ActivityBatch, ActivityEvent } from "./types";
 
 const event = (id: number, kind = "transfer_completed"): ActivityEvent => ({
@@ -31,6 +36,17 @@ const batch = (
 });
 
 describe("recent activity observations", () => {
+  it("condenses successful chunk traffic and omits routine bookkeeping without hiding failures", () => {
+    const rows = quietActivity([
+      event(1, "transfer_started"),
+      event(2),
+      event(3),
+      event(4, "transfer_failed"),
+      { ...event(5, "replica_state"), state: "HEALTHY" },
+    ]);
+    expect(rows.map((row) => row.id)).toEqual([3, 4]);
+    expect(rows[0].group_count).toBe(2);
+  });
   it("deduplicates polls and bounds history", () => {
     const initial = mergeActivity(null, batch("one", [event(1), event(2)]));
     const next = mergeActivity(initial, batch("one", [event(2), event(3)]));

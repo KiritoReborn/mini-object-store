@@ -2,4 +2,8 @@ node_modules/
 test-results/
 playwright-report/
 *.tsbuildinfo
+.env
+.env.local
+dist/
+.vercel/
 .test-captures/

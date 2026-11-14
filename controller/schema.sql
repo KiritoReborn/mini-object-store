@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS workers (
     last_heartbeat TEXT,
     status TEXT NOT NULL CHECK(status IN ('JOINING','ALIVE','DEAD'))
 );
+CREATE TABLE IF NOT EXISTS worker_settings (
+    worker_id TEXT PRIMARY KEY REFERENCES workers(worker_id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    placement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(placement_enabled IN (0,1))
+);
 CREATE TABLE IF NOT EXISTS replicas (
     chunk_id TEXT NOT NULL REFERENCES chunks(chunk_id) ON DELETE CASCADE,
     worker_id TEXT NOT NULL REFERENCES workers(worker_id),

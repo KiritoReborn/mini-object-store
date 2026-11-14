@@ -87,3 +87,7 @@ controlled four-worker integration check is documented there too.
   or malformed sidecar; it does not verify data against the controller's hash.
 - The five direct dependencies are pinned; transitive dependencies are not
   locked, and the shared requirements still include test tooling.
+
+## Simple online demo option
+
+The frontend can run on Vercel while the existing controller and Docker workers stay on your PC. The browser talks directly to an ngrok HTTPS backend address. No extra application server is needed. Connection settings keep the owner key in page memory. Optional demo controls start/stop/restart only the four project workers; a quiet activity summary and demo walkthrough support presentation. See [setup, ownership and limits](docs/DEMO.md). Recovery remains Member B's responsibility.

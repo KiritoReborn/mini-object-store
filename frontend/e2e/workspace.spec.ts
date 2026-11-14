@@ -50,6 +50,16 @@ const workers = [1, 2, 3, 4].map((n) => ({
 
 export async function fixture(page: Page, degraded = false, empty = false) {
   let objects = empty ? [] : names.map(makeObject);
+  let managed = workers.map((worker) => ({
+    ...worker,
+    ...(degraded ? { status: "JOINING", available: false } : {}),
+    base_url: `http://${worker.worker_id}:8001`,
+    display_name: "",
+    notes: "",
+    placement_enabled: true,
+    replica_count: worker.chunk_count,
+    can_forget: false,
+  }));
   await page.addInitScript(() =>
     Object.defineProperty(window, "showSaveFilePicker", {
       value: undefined,
@@ -60,6 +70,45 @@ export async function fixture(page: Page, degraded = false, empty = false) {
     const request = route.request(),
       url = new URL(request.url()),
       method = request.method();
+    if (url.pathname === "/api/v1/demo/workers")
+      return route.fulfill({ json: { enabled: false, workers: [] } });
+    if (url.pathname === "/api/v1/workers")
+      return route.fulfill({
+        json: {
+          workers: managed,
+          placement_available_workers: managed.filter(
+            (worker) => worker.available && worker.placement_enabled,
+          ).length,
+        },
+      });
+    if (url.pathname === "/api/v1/workers/connect") {
+      const body = request.postDataJSON();
+      const worker = {
+        ...managed[0],
+        ...body,
+        status: "JOINING",
+        available: false,
+        chunk_count: 0,
+        stored_bytes: 0,
+        replica_count: 0,
+        can_forget: false,
+      };
+      managed = [
+        ...managed.filter((item) => item.worker_id !== body.worker_id),
+        worker,
+      ];
+      return route.fulfill({ json: worker });
+    }
+    if (url.pathname.startsWith("/api/v1/workers/") && method === "PATCH") {
+      const id = url.pathname.split("/").at(-1)!;
+      const patch = request.postDataJSON();
+      managed = managed.map((worker) =>
+        worker.worker_id === id ? { ...worker, ...patch } : worker,
+      );
+      return route.fulfill({
+        json: managed.find((worker) => worker.worker_id === id),
+      });
+    }
     if (url.pathname.endsWith("/activity"))
       return route.fulfill({
         json: {
@@ -895,4 +944,217 @@ test("explicit recovery transfer observations can travel and replay without inve
   await expect(
     page.getByText(/Replay of observed event.*Repair completed/),
   ).toBeVisible();
+});
+
+test("worker labels, notes and write placement controls use real administration APIs", async ({
+  page,
+}) => {
+  await fixture(page);
+  const writes: unknown[] = [];
+  await page.route("**/api/v1/workers/worker1", (route) => {
+    writes.push(route.request().postDataJSON());
+    expect(route.request().headers()["x-artaud-admin"]).toBe("1");
+    return route.fallback();
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Manage workers", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Edit worker1", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Edit worker1",
+    exact: true,
+  });
+  await dialog.getByLabel("Display name").fill("Primary storage");
+  await dialog.getByLabel("Operator notes").fill("Local persistent volume");
+  await dialog.getByRole("button", { name: "Save worker" }).click();
+  await expect(
+    page.getByText("Primary storage", { exact: true }),
+  ).toBeVisible();
+  expect(writes[0]).toEqual({
+    display_name: "Primary storage",
+    notes: "Local persistent volume",
+  });
+  await page
+    .getByRole("button", { name: "Pause new uploads on worker1", exact: true })
+    .click();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker1"]')
+      .getByText("New uploads paused", { exact: true }),
+  ).toBeVisible();
+  expect(writes[1]).toEqual({ placement_enabled: false });
+  await page
+    .getByRole("button", { name: "Resume new uploads on worker1", exact: true })
+    .click();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker1"]')
+      .getByText("Accepting new uploads", { exact: true }),
+  ).toBeVisible();
+});
+
+test("connecting a running worker never claims to create a container or qualify it", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Connect worker", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Connect an existing worker",
+  });
+  await expect(
+    dialog.getByText(/service must already be running/),
+  ).toBeVisible();
+  await dialog.getByLabel("Worker ID").selectOption("worker5");
+  await dialog.getByLabel("Display name").fill("Additional node");
+  await dialog.getByRole("button", { name: "Verify & connect" }).click();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker5"]')
+      .getByText("Joining", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker5"]')
+      .getByRole("button", { name: "Forget worker5" }),
+  ).toBeDisabled();
+});
+
+test("worker container actions are confirmed and separate from controller availability", async ({
+  page,
+}) => {
+  await fixture(page);
+  let running = true;
+  const actions: string[] = [];
+  await page.route("**/api/v1/demo/workers**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === "POST") {
+      actions.push(path);
+      running = !path.endsWith("/stop");
+      return route.fulfill({
+        json: {
+          worker_id: "worker1",
+          running,
+          container_state: running ? "running" : "exited",
+        },
+      });
+    }
+    return route.fulfill({
+      json: {
+        enabled: true,
+        workers: [1, 2, 3, 4].map((n) => ({
+          worker_id: `worker${n}`,
+          running: n === 1 ? running : true,
+          container_state: n === 1 && !running ? "exited" : "running",
+        })),
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.getByRole("button", { name: "Stop worker1", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "stop worker1",
+    exact: true,
+  });
+  await expect(
+    dialog.getByText(/persistent volume is preserved/),
+  ).toBeVisible();
+  expect(actions).toEqual([]);
+  await dialog
+    .getByRole("button", { name: "Stop worker1", exact: true })
+    .click();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker1"]')
+      .getByText("Container: exited", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator('[data-managed-worker="worker1"]')
+      .getByText("Available", { exact: true }),
+  ).toBeVisible();
+  expect(actions).toEqual(["/api/v1/demo/workers/worker1/stop"]);
+  await page
+    .getByRole("button", { name: "Start worker1", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Start worker1", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Stop worker1", exact: true }),
+  ).toBeVisible();
+});
+
+test("summary groups chunk successes while technical events remain inspectable", async ({
+  page,
+}) => {
+  await fixture(page);
+  const events = Array.from({ length: 12 }, (_, index) =>
+    observedEvent(index + 1, {
+      kind: index % 2 === 0 ? "transfer_started" : "transfer_completed",
+    }),
+  );
+  await page.route("**/api/v1/activity?**", (route) =>
+    route.fulfill({
+      json: {
+        stream_id: "quiet",
+        oldest_id: 1,
+        latest_id: 12,
+        next_cursor: 12,
+        truncated: false,
+        events,
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(page.locator(".activity-list li")).toHaveCount(1);
+  await expect(
+    page.getByText("6 similar successful events grouped · latest shown"),
+  ).toBeVisible();
+  await page.getByLabel("Activity type").selectOption("all");
+  await expect(page.locator(".activity-list li")).toHaveCount(12);
+  await page.getByText("Demo walkthrough", { exact: true }).click();
+  await page.getByRole("checkbox", { name: /Store an object/ }).check();
+  await expect(page.getByText("1 / 7 checked")).toBeVisible();
+});
+
+test("connection settings use a direct remote API and never persist the owner key", async ({
+  page,
+}) => {
+  await fixture(page);
+  let key = "";
+  await page.route("https://test-api.example/api/v1/**", (route) => {
+    key = route.request().headers()["x-artaud-key"];
+    return route.fallback();
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Backend connection", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Backend connection",
+    exact: true,
+  });
+  await dialog
+    .getByLabel("Backend HTTPS address")
+    .fill("https://test-api.example");
+  await dialog.getByLabel("Owner access key").fill("private-owner-key");
+  await dialog.getByRole("button", { name: "Connect backend" }).click();
+  await expect.poll(() => key).toBe("private-owner-key");
+  expect(
+    await page.evaluate(() =>
+      JSON.stringify({
+        local: { ...localStorage },
+        session: { ...sessionStorage },
+      }),
+    ),
+  ).not.toContain("private-owner-key");
 });

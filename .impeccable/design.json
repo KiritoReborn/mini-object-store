@@ -76,6 +76,16 @@
       "name": "Live topology",
       "kind": "diagram",
       "description": "HTML node controls over SVG controller-worker connections; current node states and chunk matrix are textual alternatives. Phone layout uses a controller trunk with separate branches."
+    },
+    {
+      "name": "Worker management row",
+      "kind": "row",
+      "description": "Shows storage eligibility and actual container state separately; labeled controls open confirmation dialogs for lifecycle changes. Placement pause affects subsequent uploads only."
+    },
+    {
+      "name": "Operation summary",
+      "kind": "feed",
+      "description": "Default quiet activity groups successful chunk events by object, direction and minute; failures stay visible and technical events retain individual observations."
     }
   ],
   "narrative": {
@@ -96,6 +106,11 @@
       {
         "name": "Observation and replay",
         "body": "Event travel is a recent observation, never packet timing or an in-flight metric. Blue replay preserves its original timestamp. Current snapshots remain authoritative.",
+        "section": "components"
+      },
+      {
+        "name": "Separate control outcomes",
+        "body": "Container start/stop success does not claim storage readiness or completed recovery. Demo checklist marks are self-reported notes.",
         "section": "components"
       }
     ],

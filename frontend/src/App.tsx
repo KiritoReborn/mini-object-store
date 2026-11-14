@@ -17,20 +17,32 @@ import {
   Trash2,
   Upload,
   X,
+  Link2,
 } from "lucide-react";
 import { downloadFile, request } from "./api";
 import { bytes, errorMessage } from "./format";
-import type { Notify, Overview, StoredObject, ToastMessage } from "./types";
+import type {
+  ManagedWorkers,
+  Notify,
+  Overview,
+  StoredObject,
+  ToastMessage,
+} from "./types";
 import { ClusterPanel } from "./components/ClusterPanel";
 import { Dialog } from "./components/Dialog";
 import { ObjectInspector } from "./components/ObjectInspector";
 import { ObjectTable } from "./components/ObjectTable";
 import { UploadPanel } from "./components/UploadPanel";
 import { SystemExplorer } from "./components/SystemExplorer";
+import { ConnectionSettings } from "./components/ConnectionSettings";
+import { apiUrl } from "./connection";
 
 export default function App() {
   const [objects, setObjects] = useState<StoredObject[]>([]),
     [overview, setOverview] = useState<Overview | null>(null);
+  const [managedWorkers, setManagedWorkers] = useState<ManagedWorkers | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false),
     [error, setError] = useState<string | null>(null),
@@ -42,6 +54,7 @@ export default function App() {
     [deleteError, setDeleteError] = useState("");
   const [helpOpen, setHelpOpen] = useState(false),
     [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null),
     activeLoad = useRef<AbortController | null>(null),
     toastTimers = useRef(new Set<number>());
@@ -67,15 +80,17 @@ export default function App() {
         controller.signal,
         AbortSignal.timeout(15_000),
       ]);
-      const [files, snapshot] = await Promise.all([
+      const [files, snapshot, workers] = await Promise.all([
         request<StoredObject[]>("/api/v1/objects", {
           signal,
         }),
         request<Overview>("/api/v1/overview", { signal }),
+        request<ManagedWorkers>("/api/v1/workers", { signal }),
       ]);
       if (!controller.signal.aborted) {
         setObjects(files);
         setOverview(snapshot);
+        setManagedWorkers(workers);
         setError(null);
         setLastUpdated(new Date());
       }
@@ -89,6 +104,20 @@ export default function App() {
       }
     }
   }, []);
+  useEffect(() => {
+    const changed = () => {
+      setSelected(null);
+      setToDelete(null);
+      setObjects([]);
+      setOverview(null);
+      setManagedWorkers(null);
+      setLastUpdated(null);
+      setLoading(true);
+      void load();
+    };
+    window.addEventListener("artaud-connection", changed);
+    return () => window.removeEventListener("artaud-connection", changed);
+  }, [load]);
   useEffect(() => {
     void load();
     const timer = window.setInterval(
@@ -169,7 +198,10 @@ export default function App() {
     }
   }
   const needsStorage =
-    !loading && !error && overview !== null && overview.available_workers < 2;
+    !loading &&
+    !error &&
+    managedWorkers !== null &&
+    managedWorkers.placement_available_workers < 2;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#workspace">
@@ -211,11 +243,15 @@ export default function App() {
           </button>
         </nav>
         <div className="sidebar-bottom">
+          <button onClick={() => setConnectionOpen(true)}>
+            <Link2 size={17} />
+            Connection settings
+          </button>
           <button onClick={() => setHelpOpen(true)}>
             <CircleHelp size={17} />
             How it works
           </button>
-          <a href="/docs" target="_blank" rel="noopener noreferrer">
+          <a href={apiUrl("/docs")} target="_blank" rel="noopener noreferrer">
             <Code2 size={17} />
             API reference
             <ArrowUpRight size={14} />
@@ -260,6 +296,14 @@ export default function App() {
               </p>
             </div>
             <div className="heading-actions">
+              <button
+                className="icon-button"
+                aria-label="Backend connection"
+                title="Backend connection"
+                onClick={() => setConnectionOpen(true)}
+              >
+                <Link2 size={17} />
+              </button>
               <button
                 className="icon-button refresh"
                 aria-label="Refresh workspace"
@@ -308,11 +352,17 @@ export default function App() {
             <div className="notice storage-notice">
               <Info size={19} />
               <div>
-                <strong>Storage is connecting</strong>
+                <strong>
+                  {overview && overview.available_workers >= 2
+                    ? "New uploads are paused"
+                    : "Storage is connecting"}
+                </strong>
                 <p>
-                  {overview.worker_count
-                    ? "Your nodes are joining. File storage becomes available after at least two nodes are checked and ready."
-                    : "Waiting for your storage nodes to connect. You can explore the workspace in the meantime."}
+                  {overview && overview.available_workers >= 2
+                    ? "Resume new uploads on at least two available workers in Cluster. Existing files can still be downloaded."
+                    : overview?.worker_count
+                      ? "Your nodes are joining. File storage becomes available after at least two nodes are checked and ready."
+                      : "Waiting for your storage nodes to connect. You can explore the workspace in the meantime."}
                 </p>
               </div>
               <button
@@ -346,7 +396,7 @@ export default function App() {
               {error
                 ? "Snapshot unavailable"
                 : view === "cluster"
-                  ? "Refreshes every 2s"
+                  ? `Refreshes every ${2000 / 1000}s`
                   : "Refreshes every 10s"}
             </span>
           </div>
@@ -354,7 +404,7 @@ export default function App() {
             <div className="files-workspace">
               <UploadPanel
                 availableWorkers={
-                  error ? 0 : (overview?.available_workers ?? 0)
+                  error ? 0 : (managedWorkers?.placement_available_workers ?? 0)
                 }
                 onUploaded={load}
                 notify={notify}
@@ -407,6 +457,10 @@ export default function App() {
                 stale={!!error}
                 capturedAt={lastUpdated?.toISOString() ?? null}
                 onInspect={setSelected}
+                managedWorkers={managedWorkers}
+                onWorkersChanged={load}
+                notify={notify}
+                pollInterval={2000}
               />
               <div className="cluster-health-note">
                 <Info size={18} />
@@ -449,6 +503,9 @@ export default function App() {
           onDownload={onDownload}
           onUpdated={load}
         />
+      )}
+      {connectionOpen && (
+        <ConnectionSettings onClose={() => setConnectionOpen(false)} />
       )}
       {toDelete && (
         <Dialog
