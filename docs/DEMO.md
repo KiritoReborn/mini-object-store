@@ -1,84 +1,107 @@
-# Simple demo: Vercel frontend, PC backend
+# Live demo and deployment
 
-The frontend is a static React/Vite build on Vercel. The FastAPI controller and four Docker workers stay on your PC. The browser calls the controller's HTTPS ngrok address directly. Vercel does not run the Docker stack or proxy file bytes. No extra application server, nginx gateway, VM or cloud database is involved.
+[Project overview](../README.md) · [Live dashboard](https://frontend-nine-iota-19.vercel.app/) · [Troubleshooting](TROUBLESHOOTING.md)
+
+Artaud works entirely locally. The optional public demo adds a static Vercel frontend and an ngrok HTTPS connection to the same PC controller. Docker, SQLite and all object bytes stay on the PC.
 
 ```text
-Browser → Vercel (frontend files)
-Browser → ngrok HTTPS address → PC controller → four Docker workers
+Browser ── frontend assets ──> Vercel
+Browser ── API requests ──> ngrok HTTPS ──> PC controller ──> four Docker workers
 ```
 
-This is a demonstration setup: the PC, Docker and ngrok must stay online. The assignment's storage topology and persistent volumes remain local. There is no 24/7 hosting guarantee. Recovery and worker code remain owned by Member B; this update does not implement, modify or simulate them.
+Vercel does not run the Docker stack or proxy file uploads. The PC must remain awake with Docker and the tunnel running. This is a live demonstration, not always-on hosting. Check current account quotas before a long demo; polling and downloads consume tunnel traffic. [ngrok documentation](https://ngrok.com/docs/gateway/agent/cli)
 
-## 1. Run the PC backend
+## Use the existing live website
 
-From the repository folder:
+1. Open **https://frontend-nine-iota-19.vercel.app/**.
+2. Choose **Connection settings** and check the backend HTTPS address.
+3. Enter the private owner key from the PC's ignored `.env` (`ARTAUD_API_KEY`, value only).
+4. Choose **Test connection**, then **Connect backend**. Check available worker count and recovery availability.
+
+The key stays in page memory and clears on reload. A visitor needs the key from the owner; it is intentionally absent from the public build and Git repository. A frontend page loading successfully does not imply that its PC backend is online.
+
+## 1. Prepare the PC
+
+Start Docker Desktop's Linux engine. In PowerShell, from the repository root:
 
 ```powershell
-.\scripts\Configure-Demo.ps1
+.\scripts\Configure-Demo.ps1 -FrontendOrigin 'https://frontend-nine-iota-19.vercel.app'
 .\scripts\Start-Artaud.ps1 -DemoControls
 ```
 
-Configure-Demo creates a high-entropy owner key in the ignored root .env, preserving existing settings. It never prints the key. Open that local file privately when entering the key in the app. The frontend keeps it in page memory only; reload clears it. Never put it in a VITE_ variable, Vercel build setting, Git commit, screenshot or chat message.
+`Configure-Demo.ps1` preserves existing settings and creates a high-entropy owner key if needed. It does not print the key. The startup helper builds/starts the existing services and checks the local app. The committed UI needs no Node server.
 
-The optional compose.controls.yaml overlay gives the controller access to the PC's Docker Engine socket for the requested demo controls. This is privileged access even though the exposed API only allows start/stop/restart of worker1..worker4 with matching Compose labels. No shell/exec, arbitrary container control, container creation/deletion or volume deletion is exposed. Enable it only on your trusted demo PC, keep the owner key private, and stop the demo when finished. Worker source and existing volume contents are preserved. Without -DemoControls, container controls stay disabled and the original local APIs still work (with owner-key authentication if configured).
-
-The controller host port is loopback-only. No worker ports or Docker daemon TCP port are published.
-
-## 2. Give the PC an HTTPS address
-
-Install the official ngrok agent, sign in/configure its existing account token locally using ngrok's instructions, then run:
+If a local execution policy blocks the helper, a process-scoped invocation is available:
 
 ```powershell
-ngrok http 8000
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Artaud.ps1 -DemoControls
 ```
 
-Use the assigned HTTPS address as the API base URL. A browser dashboard login does not configure the local agent token. Do not paste account tokens into this repository or chat. The controller rejects internal worker routes for a public hostname and requires the owner key for /api/v1 APIs. The frontend supplies ngrok's browser-warning bypass header for API calls.
+Local dashboard: **http://127.0.0.1:8000/**. Workers may briefly remain JOINING while recovery verifies them. Check the actual available count before uploading a nonempty file.
 
-The free plan currently includes an assigned development domain, 1 GB outgoing data and 20,000 HTTP requests per month. It does not include an owned custom ngrok domain. Keep demos brief; polling and downloads consume the allowance. kirrito.com can later point its frontend subdomain to Vercel; it is not required for this setup. [ngrok free-plan limits](https://ngrok.com/docs/pricing-limits/free-plan-limits)
+### Optional container controls
 
-## 3. Publish just the frontend to Vercel
+`-DemoControls` adds `compose.controls.yaml`, mounting the Docker Engine socket into the controller. This is privileged access and requires an owner key. The API limits actions to Start/Stop/Restart of existing worker1..worker4 containers with the exact configured project/service/name. It exposes no arbitrary shell, container deletion or volume deletion.
 
-Import the existing GitHub repository in Vercel. Select root directory **frontend**, framework **Vite**, build command **npm run build**, output **dist**. frontend/vercel.json records this. Set the public build variable:
+Without the overlay, run `docker compose up --build -d` for normal storage and recovery. Docker actions and storage eligibility are different: starting a container never manually promotes it to ALIVE.
 
-```text
-VITE_API_BASE_URL=https://YOUR-ASSIGNED-NGROK-DOMAIN
+## 2. Start the HTTPS connection
+
+Install the official ngrok agent and configure the account token locally using its official instructions. Browser sign-in alone does not configure the agent. Keep tokens out of Git, screenshots and chat.
+
+```powershell
+ngrok http http://127.0.0.1:8000 --inspect=false
 ```
 
-Do not create Vercel serverless API rewrites for uploads. The browser sends file requests directly to that backend address. The normal local build still writes controller/static so the app can also be used entirely on the PC. [Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite)
+Use the assigned **HTTPS** origin as the backend address. If an agent is already serving this controller, use its existing endpoint rather than starting a second one. Request inspection is disabled for this file-storage demo.
 
-Once Vercel gives the frontend URL, allow that exact origin on the PC:
+Do not rewrite the public Host header to `localhost` or `controller`: public internal-worker routes are rejected based on the public hostname. The frontend includes the ngrok browser-warning bypass header on API calls. Only controller loopback port `8000` is published; worker ports and Docker daemon TCP are not exposed.
+
+## 3. Configure Vercel
+
+Import the existing GitHub repository. Its production branch is **master**. Use:
+
+| Setting                         | Value                                              |
+| ------------------------------- | -------------------------------------------------- |
+| Root directory                  | `frontend`                                         |
+| Framework                       | Vite                                               |
+| Install command                 | Default npm installation using the lockfile        |
+| Build command                   | `npm run build`                                    |
+| Output directory                | `dist`                                             |
+| Production environment variable | `VITE_API_BASE_URL=https://YOUR-ACTIVE-NGROK-HOST` |
+
+Use only the HTTPS origin, without an API path. `frontend/vercel.json` records the build/output settings. The root `.vercelignore` limits CLI uploads to frontend source and excludes private env files, installed packages and captures. Never upload local `.env`, `.env.local`, data, backups or Vercel credentials.
+
+**The owner key must never be a `VITE_` variable.** Vite's frontend build values are public. Enter the key at runtime in Connection settings. [Vite on Vercel](https://vercel.com/docs/frameworks/frontend/vite)
+
+For a different frontend URL, allow that exact origin on the PC and recreate its controller:
 
 ```powershell
 .\scripts\Configure-Demo.ps1 -FrontendOrigin 'https://YOUR-FRONTEND.vercel.app'
 .\scripts\Start-Artaud.ps1 -DemoControls
 ```
 
-This uses exact-origin CORS, not a wildcard. In the frontend, open Connection settings, check the HTTPS backend address and enter the owner key from the local .env. If the assigned backend address changes, update VITE_API_BASE_URL and redeploy, or change the address in Connection settings for the current tab. Local HTTP localhost is allowed for development; public backend addresses must use HTTPS. [FastAPI CORS](https://fastapi.tiangolo.com/tutorial/cors/)
+Use exact-origin CORS. Preview URLs do not inherit permission from the production domain. When the tunnel address changes, update the production `VITE_API_BASE_URL` and redeploy; a tab-local Connection settings override is useful for testing. No Vercel API rewrite or separate proxy is required. [FastAPI CORS](https://fastapi.tiangolo.com/tutorial/cors/)
 
-## 4. Demonstrate without mixing responsibilities
+## 4. Rehearse the demonstration
 
-- Files: upload >1 MB, inspect ordered chunks/two locations, edit metadata, download and compare SHA-256.
-- Cluster: choose a file/chunk, inspect placement, review operation summaries or switch to individual technical events.
-- Manage workers: confirm Stop on one actual container. Its Docker running state updates immediately; controller availability changes according to heartbeat/recovery policy. Its volume remains intact. Start it again to demonstrate B's verified inventory rejoin. The standard docker stop worker2 / docker start worker2 commands exercise the same assignment flow.
-- Recovery panel: show only actual replica states and repair events from the teammate's implementation. Starting a container is not proof of completed recovery. No manual ALIVE or fake repair button exists.
-- Demo walkthrough: track presentation steps and export self-reported notes. Checkmarks are operator notes, not automated verification.
+| Step            | Show                                                | Explain                                                                                    |
+| --------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Connect         | Four available workers and recovery connected       | Container liveness and verified storage admission are separate.                            |
+| Upload          | A file larger than 1,000,000 bytes                  | Ordered chunks, two distinct copies, READY only after successful placement.                |
+| Inspect         | Metadata, SHA-256 and per-chunk locations           | SQLite is authoritative; equal copy counts do not imply every worker holds the whole file. |
+| Read            | Download and compare SHA-256                        | Bytes are verified before the binary response starts.                                      |
+| Fail one worker | Stop from Manage workers or `docker stop worker2`   | A surviving verified copy supports fallback; default death/reconcile timing is eventual.   |
+| Observe repair  | Under-replication followed by restored copy records | Show actual observations, not an invented progress bar or packet-rate claim.               |
+| Rejoin          | Start the same worker with its volume               | Inventory verification and surplus cleanup can leave the returning worker empty.           |
+| Finish          | Delete only the demonstration object                | Offline physical cleanup can be eventual.                                                  |
 
-### Why a restarted worker can become empty
+If both holders of a required chunk are stopped before repair, show the expected503 failure. Recovery needs a surviving source; restarting a holder can restore access. See the [failure matrix and cloud comparison](ARCHITECTURE.md#failure-matrix).
 
-Stop/Start preserves the named Docker volume. Recovery can subsequently delete surplus chunks from that volume: while a worker is down, replacement copies are made elsewhere to restore the required two replicas. On rejoin, B verifies the returning chunk and two other copies against the controller's checksums, then removes the third copy. Every old chunk on the returning worker can be surplus, so an ALIVE worker with zero chunks is valid. Recovery restores redundancy; it does not automatically rebalance existing healthy chunks across all workers. New uploads can use the returned worker when placement is enabled.
+The walkthrough checklist exports operator notes; checked boxes are not automated acceptance results. For repeatable isolated fault injection, use the [joint acceptance harness](ACCEPTANCE.md), which operates on its own labelled stack.
 
-For diagnosis, distinguish an unchanged named volume plus SURPLUS_DELETED recovery logs from actual volume loss. Current code never deletes a healthy surplus chunk without verifying two other copies first. Persistent storage survives container Stop/Start, but application cleanup still changes its contents.
+## Persistence and safe shutdown
 
-## Joining diagnosis and current boundary
+Stop/Start preserves named volumes. Recovery can deliberately delete obsolete third copies after verifying two others. Look for `SURPLUS_DELETED`; this is different from a lost or newly mounted volume. Existing healthy chunks are not automatically rebalanced back onto the returned worker.
 
-B delivered controller/recovery.py and its tests. The combined normal stack now has four verified ALIVE workers; nonempty file operations and actual repair/rejoin passed the joint live gate. JOINING remains the correct temporary startup state while inventory is verified. If it persists, inspect recovery/worker logs, heartbeat freshness and inventory errors rather than manually granting ALIVE. The old investigation implementation is not used; current recovery is B's delivered module with reviewed shared-boundary corrections. See HANDOFF.md for live URLs and ACCEPTANCE.md for repeatable evidence.
-
-## Research and selected features
-
-Portainer provides inspectable container state and lifecycle actions; this project adopts only the small demo subset, without general Docker administration. [Portainer containers](https://docs.portainer.io/user/docker/containers)
-
-Grafana Explore emphasizes filtering and correlation when inspecting noisy logs. Here the default feed groups similar successful chunk events by file/direction/minute, omits routine started/healthy bookkeeping, and keeps failures visible. A technical view preserves original events and timestamps. Group counts are events, not inferred network bandwidth or unique bytes. [Grafana logs](https://grafana.com/docs/grafana/latest/visualizations/explore/logs-integration/)
-
-Docker stop sends a termination signal to the existing container; it does not delete the container or its volume. Controls preserve that distinction. Docker socket access is privileged and protected separately from ordinary file actions. [Docker stop](https://docs.docker.com/reference/cli/docker/container/stop/), [Docker socket security](https://docs.docker.com/engine/security/protect-access/)
-
-Useful later additions, after the joint system works: a teammate-backed integrity-check action, measured request latency/history, server-side object pagination, bulk object actions with per-file outcomes, and a repeatable failure/corruption evidence script. Persistent operation history, multi-user permissions and resumable uploads require deliberate backend contracts and tests; they are not claimed in this release. Prioritize the complete assignment demonstration over unrelated S3 compatibility, billing, cloud replication or a generic Docker control panel.
+Stop the foreground ngrok process when the public demo ends. Shut down the local stack with `docker compose down` to retain stored data. Do not use `down -v` unless you intend to erase its volumes. Keep the Compose project name unchanged when restarting. Back up the metadata volume and all worker volumes together before migrations.

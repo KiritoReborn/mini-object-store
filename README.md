@@ -1,78 +1,155 @@
-# Mini Distributed Cloud Object Store
+# Artaud
 
-Member A's controller/frontend and Member B's worker/recovery are integrated. The
-controller provides all six object APIs, persistent SQLite metadata, placement,
-replicated upload, verified download, and registration/heartbeat endpoints.
-See [the controller guide](docs/CONTROLLER.md), [current handoff](docs/HANDOFF.md),
-and [shared contracts](contracts/db-helpers.md) before continuing development.
+### Mini Distributed Cloud Object Store
 
-**Web workspace:** the Artaud dashboard is served at `http://localhost:8000/` by
-the controller. It includes file search/filter/sort, a multi-file upload queue,
-downloads, metadata editing, chunk locations, delete confirmation and live node
-summaries. Its built assets ship with the controller; no Node server is needed
-in Docker. See [frontend development and verification](docs/FRONTEND.md) and
-[the design system](DESIGN.md).
+A working object store that makes distributed storage visible: upload a file, inspect its chunks and replicas, stop a worker, and watch the cluster restore redundancy.
 
-**Live system explorer:** choose Cluster for controller/worker wiring, recent
-transfer animation and replay, per-file chunk placement, storage distribution,
-recovery observations and JSON diagnostic exports. See [the visual system guide](docs/LIVE_SYSTEM.md).
-Windows startup is available through `scripts/Start-Artaud.ps1`; [Member A readiness](docs/MEMBER_A_READY.md)
-records the one-command setup and the remaining shared integration boundary.
+Built with **Python · FastAPI · SQLite · React · TypeScript · Docker Compose**. One controller coordinates four workers, with two copies of each chunk on distinct workers and SHA-256 verification against authoritative metadata.
 
-**Recovery:** registered/restarted workers stay JOINING while B verifies inventory
-and bytes, then become ALIVE. Failure detection, verified repair, rejoin/orphan
-cleanup and restart persistence have passed the joint live checks. `/health`
-reports whether the module is installed; overview reports actual eligibility.
-Neither registration nor heartbeat is a promotion shortcut. Optional B status/CLI
-modules are separate; missing status.py is not imported as a router.
+**[Open the live dashboard](https://frontend-nine-iota-19.vercel.app/)** · [Quick start](#quick-start) · [Architecture](docs/ARCHITECTURE.md) · [API reference](contracts/api-contract.md) · [Documentation](docs/README.md)
 
-The workers store chunks under `/data/chunks`, using one named Docker volume per
-worker. The controller's SQLite hash remains the source of truth for integrity;
-the worker sidecar is a local self-check.
+> **Live demo access:** the frontend is hosted on Vercel; the controller and workers run on the owner's PC through an HTTPS tunnel. The PC, Docker and tunnel must be running. Open **Connection settings**, enter the private owner key, then choose **Test connection → Connect backend**. The key clears on reload. Visitors need a key from the demo owner; it is intentionally absent from this repository.
 
-## Run locally
+![Artaud dashboard showing the controller connected to four available storage workers](docs/images/cluster-dashboard.png)
 
-The controller entry point is `controller/main.py`, matching the existing
-Dockerfile. Start the five-service stack:
+_Real dashboard capture. Node status, file counts and placement reflect the connected cluster at capture time._
+
+## What it does
+
+| Area                     | Implemented behavior                                                                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Object lifecycle         | Multipart upload, verified download, metadata retrieval/editing, listing and deletion through six independent REST endpoints.                               |
+| Chunking and replication | Default 1,000,000-byte chunks; two acknowledged copies on distinct eligible workers before publishing an object. Empty files are supported.                 |
+| Placement                | Selects workers with the fewest healthy chunk records, using worker ID to break ties. Retries another worker after a failed write.                          |
+| Integrity                | Per-chunk and whole-object SHA-256 in SQLite; download fallback rejects missing, corrupt or incorrectly hashed copies.                                      |
+| Recovery                 | Heartbeats, failure detection, verified worker admission, replica repair, rejoin reconciliation and orphan/surplus cleanup.                                 |
+| File workspace           | Upload queue, cancellation, metadata search, sorting/filtering, chunk inspector, listing exports and confirmed bulk deletion.                               |
+| Cluster explorer         | Controller-to-worker topology, observed transfers/replay, chunk placement, replication status, quiet activity summaries and diagnostic exports.             |
+| Worker management        | Labels, notes, upload-placement pause and connection of existing supported workers. Optional authenticated Start/Stop/Restart for the four demo containers. |
+| Persistence              | SQLite metadata and each worker's chunk files live in separate named Docker volumes.                                                                        |
+
+## Quick start
+
+### Requirements
+
+- Git and access to this GitHub repository.
+- Docker Engine with Compose v2+, or Docker Desktop running **Linux containers**.
+- Node.js is needed only to edit/rebuild the frontend. Python on the host is needed only for the standalone acceptance script.
 
 ```sh
+git clone https://github.com/KiritoReborn/mini-object-store.git
+cd mini-object-store
 docker compose up --build -d
 docker compose ps
 ```
 
-To run only the worker services:
+Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**. The controller serves the committed frontend build, so a separate frontend server is unnecessary. Interactive API docs are at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-```sh
-docker compose up --build -d worker1 worker2 worker3 worker4
-docker compose ps
+Workers initially show `JOINING`. Recovery checks their inventory and bytes before admitting them as `ALIVE`. Nonempty uploads require at least two eligible workers. A successful `/health` response alone does not prove that storage is ready.
+
+A clean local checkout has no owner key configured. If your existing `.env` defines `ARTAUD_API_KEY`, enter that key in Connection settings for local access too. See [troubleshooting](docs/TROUBLESHOOTING.md) for access or admission errors.
+
+### Windows helper and optional worker controls
+
+From the repository root in PowerShell:
+
+```powershell
+.\scripts\Configure-Demo.ps1
+.\scripts\Start-Artaud.ps1 -DemoControls
 ```
 
-Workers retry registration while the controller is offline,
-accept any 2xx registration response, and re-register after a heartbeat 404.
-Heartbeats use a five-second interval by default and finite HTTP timeouts.
+The first command creates a private owner key in the ignored `.env`, preserving existing settings. The second builds/starts the stack with optional Docker controls. Enter the value of `ARTAUD_API_KEY` in the dashboard; do not publish it or put it in a frontend build variable.
 
-The worker listener and default advertised port are fixed at 8001. `WORKER_ID`
-must be non-empty. The base Compose file publishes only controller port 8000.
-Optional worker port mappings belong in the git-ignored `compose.override.yaml`.
-The `/health` check measures worker HTTP liveness, not controller availability.
+The controls overlay mounts the Docker socket, which is privileged access. It permits only Start/Stop/Restart of the four identified project workers. Without the overlay, normal file operations and recovery still work. See the [demo and HTTPS setup guide](docs/DEMO.md).
 
-Named volumes survive `docker stop` / `docker start` and `docker compose down`.
-Keep the same Compose project name when starting again. `docker compose down -v`
-removes the volumes and their data.
-
-## Tests
-
-With Python 3.12 and the packages in `requirements.txt` installed:
+### Stop without removing stored data
 
 ```sh
-python -m pytest tests/test_worker.py -v
+docker compose down
 ```
 
-Tests isolate storage in temporary directories and replace external HTTP only.
-For the complete suite on Windows, use the Linux Docker test command in the
-controller guide; worker directory syncing is Linux-specific. The joint
-[acceptance guide](docs/ACCEPTANCE.md) records the API requirements, test results,
-ownership and repeatable five-container check:
+Named volumes survive normal Stop/Start and Compose shutdown. Keep the same Compose project name when starting again. **`docker compose down -v` deletes the project's stored volumes.** Application-driven recovery can still remove obsolete chunks from a persistent volume; persistence does not prevent intentional cleanup. [Docker volume lifecycle](https://docs.docker.com/engine/storage/volumes/#a-volumes-lifecycle)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    B[Browser] -->|Optional static frontend| V[Vercel]
+    B -->|REST: local HTTP or ngrok HTTPS| C[FastAPI controller]
+    C <-->|Object and replica metadata| D[(SQLite volume)]
+    C <-->|Chunk operations| W1[worker1 + volume]
+    C <-->|Chunk operations| W2[worker2 + volume]
+    C <-->|Chunk operations| W3[worker3 + volume]
+    C <-->|Chunk operations| W4[worker4 + volume]
+```
+
+The controller owns object metadata, placement, verification and API responses. Workers store chunks and local checksum sidecars. Recovery coordinates repair through the controller; workers do not form a forwarding chain. Vercel serves frontend files while the browser sends API requests directly to the PC.
+
+### How chunks are distributed
+
+A copy is one replica of one chunk, not a copy of the whole file. Starting with four empty, healthy workers and a single upload:
+
+| Chunk | Storage locations |
+| ----- | ----------------- |
+| 1     | worker1 + worker2 |
+| 2     | worker3 + worker4 |
+| 3     | worker1 + worker2 |
+| 4     | worker3 + worker4 |
+
+This gives each worker two stored chunks. Placement balances **healthy chunk counts**, not disk capacity or exact byte totals. Existing data, concurrent uploads, paused placement and failures can change the pattern. It is deterministic least-loaded selection, not consistent hashing.
+
+### What happens when workers fail?
+
+- **One holder fails:** downloads can use the other verified copy; recovery creates a replacement on an eligible worker.
+- **Both holders of a required chunk fail before repair:** that file's download returns JSON `503`; the controller does not send a partially reconstructed file. Restarting a holder can restore access if its persistent bytes remain intact.
+- **Every copy is permanently destroyed:** replication alone cannot reconstruct the missing bytes. This release has no erasure coding or backup-restore API.
+- **A worker returns empty:** recovery may have verified two copies elsewhere and deleted its surplus third copies. This is normal rejoin cleanup, not Docker volume loss. Existing healthy replicas are not automatically rebalanced back onto it.
+
+All five containers run on one PC. They demonstrate process failures, not independent machine or availability-zone failures. The [architecture guide](docs/ARCHITECTURE.md) explains the lifecycle, failure matrix and differences from AWS, Azure and Google Cloud storage.
+
+## REST API
+
+Base URL for local use: `http://127.0.0.1:8000`.
+
+| Method   | Endpoint                        | Success                                                         |
+| -------- | ------------------------------- | --------------------------------------------------------------- |
+| `POST`   | `/api/v1/objects`               | `201` — upload multipart `file`, optional JSON `metadata` field |
+| `GET`    | `/api/v1/objects/{id}`          | `200` — original verified bytes                                 |
+| `GET`    | `/api/v1/objects/{id}/metadata` | `200` — metadata, ordered chunks and replica records            |
+| `PATCH`  | `/api/v1/objects/{id}/metadata` | `200` — merge custom metadata                                   |
+| `DELETE` | `/api/v1/objects/{id}`          | `204` — logical deletion and reachable-copy cleanup             |
+| `GET`    | `/api/v1/objects`               | `200` — READY objects                                           |
+
+Example against a clean local profile, using an existing `sample.bin`:
+
+```sh
+curl --fail-with-body -F 'file=@sample.bin' \
+  -F 'metadata={"project":"artaud"}' \
+  http://127.0.0.1:8000/api/v1/objects
+
+curl --fail-with-body http://127.0.0.1:8000/api/v1/objects
+```
+
+The example uses POSIX shell quoting. In Windows PowerShell use `curl.exe`; see the [controller guide](docs/CONTROLLER.md) for a native example. When an owner key is configured, API calls require `X-Artaud-Key`. Administrative mutations also require `X-Artaud-Admin: 1`; the frontend supplies it after explicit user confirmation.
+
+Errors use `{"error":"CODE","message":"description"}`. Invalid input returns `400`, unknown objects `404`, conflicts `409`, unexpected faults `500` and unavailable required storage `503`. Optional access/origin checks also return `401`/`403`. PATCH accepts `{"metadata":{...}}`; system fields cannot be overwritten, omitted keys are preserved, and `null` is a stored value rather than deletion.
+
+See the [complete HTTP contract](contracts/api-contract.md) for worker routes, metadata limits, extensions and deletion semantics.
+
+## Verification
+
+Verified on **14 November 2026** against the integrated application source:
+
+| Check                          | Result                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux backend suite            | 299 passed; 1 explicitly skipped live check; 1 framework deprecation warning                                                            |
+| Frontend unit tests            | 28 passed                                                                                                                               |
+| Chromium UI tests              | 29 passed, including accessibility and narrow layouts                                                                                   |
+| Real five-container acceptance | Admission, physical replication, worker failure/repair/rejoin, forged-sidecar corruption repair, restart persistence and cleanup passed |
+| Large transfer                 | 50,000,000 bytes / 50 chunks, streamed upload/download with matching SHA-256                                                            |
+| Public demo                    | Vercel → HTTPS → PC upload, metadata, chunks, verified download and deletion passed                                                     |
+
+Run the isolated live acceptance check after building both images:
 
 ```sh
 docker build -f Dockerfile.controller -t mini-object-store-controller:integration .
@@ -80,34 +157,41 @@ docker build -f Dockerfile.worker -t mini-object-store-worker:integration .
 python tests/test_end_to_end.py --large
 ```
 
-Add `--browser` after installing the frontend test dependencies/Chromium to
-exercise actual UI operations too. `sh scripts/demo.sh --large` runs the same
-isolated acceptance flow. No manual ALIVE override is used. Normal unit runs skip
-this explicitly invoked live check.
+It creates its own labelled five-container stack and volumes, uses the actual reconciler and removes its own resources. It does not stop the normal stack or manually grant workers `ALIVE`. For backend unit commands, frontend checks and the optional `--browser` workflow, see [acceptance and testing](docs/ACCEPTANCE.md).
 
-Chunk size defaults to 1000000 bytes and is forwarded consistently through
-Compose; heartbeat/death/reconcile defaults are 5/15/5 seconds. Replication is fixed
-at two distinct workers. The optional Docker-socket UI controls are owner-demo
-conveniences; the assignment commands `docker stop worker2` / `docker start worker2`
-work directly and preserve volumes. See [DEMO.md](docs/DEMO.md) for the privileged overlay and key.
+## Project structure
 
-## Known limitations
+```text
+controller/       FastAPI, SQLite, placement, object lifecycle, recovery, telemetry
+  static/         Committed production frontend build
+worker/           Chunk storage, sidecars, internal HTTP API, heartbeat
+frontend/         React/TypeScript source, design styles and browser tests
+contracts/        HTTP, database schema and stable helper contracts
+tests/            Backend tests and isolated live acceptance harness
+scripts/          Windows setup/start helpers and POSIX demo wrapper
+docs/             Architecture, operation, testing and continuation guides
+compose.yaml      Controller + four workers with independent named volumes
+```
 
-- Chunk IDs require a lowercase UUID-shaped value plus a nonnegative decimal
-  index. UUID version and variant bits are intentionally not enforced for
-  controller compatibility. Slashes, backslashes, and traversal strings remain
-  invalid.
-- Containers currently run as root to keep existing volume permissions
-  compatible. Running as a dedicated user requires migrating volume ownership.
-- Each worker volume must have exactly one worker process. Striped thread locks
-  coordinate requests within that process, not multiple processes sharing data.
-- Chunk and sidecar are committed separately, data first. An interrupted write
-  can leave a corrupt pair; GET rejects it and PUT can repair it. Startup removes
-  abandoned temporary files. Inventory may report a null checksum for a missing
-  or malformed sidecar; it does not verify data against the controller's hash.
-- Production framework versions are pinned; the async test plugin/transitive
-  dependencies are not fully locked, and shared requirements include test tooling.
+## Documentation and development
 
-## Simple online demo option
+Start with the [documentation index](docs/README.md). Main guides:
 
-The frontend can run on Vercel while the existing controller and Docker workers stay on your PC. The browser talks directly to an ngrok HTTPS backend address. No extra application server is needed. Connection settings keep the owner key in page memory. Optional demo controls start/stop/restart only the four project workers; a quiet activity summary and demo walkthrough support presentation. See [setup, ownership and limits](docs/DEMO.md). Recovery remains Member B's responsibility.
+- [Architecture and failure model](docs/ARCHITECTURE.md)
+- [Local/public demo and worker controls](docs/DEMO.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Controller development](docs/CONTROLLER.md) and [frontend development](docs/FRONTEND.md)
+- [Live topology and event semantics](docs/LIVE_SYSTEM.md)
+- [Acceptance evidence and repeatable tests](docs/ACCEPTANCE.md)
+- [Shared HTTP contract](contracts/api-contract.md), [schema](contracts/db-schema.md) and [database helpers](contracts/db-helpers.md)
+- [Current handoff for Codex, Claude or a new contributor](docs/HANDOFF.md)
+
+Member A owns the controller/API/database and frontend; Member B owns worker storage and recovery. Contracts and acceptance checks are shared. The default branch is **`master`**, and all integrated work lives there; continue on that branch under the current project workflow. Read `AGENTS.md` and the handoff before changing shared boundaries.
+
+## Scope and limitations
+
+This is an educational distributed-systems project with a working demo. The single controller, SQLite database and physical PC remain failure points. Replication is fixed at two; reads verify bytes, while the dashboard is an observation of recorded state rather than a continuous full-disk audit. Activity is bounded and process-local, and detailed repair-transfer animation requires explicit recovery events.
+
+There is no S3-compatible protocol, multi-user IAM, versioning, erasure coding, resumable upload, multi-region failover or production availability SLA. Containers currently run as root, each worker volume requires a single worker process, and the Python dependency set includes test tools with some unpinned transitive dependencies. Worker chunk/sidecar commits can be interrupted between files; verified reads reject inconsistent pairs and recovery can repair them from a good copy.
+
+Third-party frontend/font notices ship in [the public assets](frontend/public/assets/third-party-notices.txt) and [Geist license](frontend/public/assets/geist-license.txt).

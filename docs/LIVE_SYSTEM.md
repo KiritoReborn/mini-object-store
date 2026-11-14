@@ -1,6 +1,6 @@
 # Live system explorer
 
-Open the dashboard and choose **Cluster**. The original file workspace remains under Files. This is a local operational view of the real controller, not a simulation or a Docker management console.
+Open the [live dashboard](https://frontend-nine-iota-19.vercel.app/) or local app and choose **Cluster**. Enter the owner key when required. Files remains the object workspace. This is an operational view of the real controller, with optional fixed-worker demo controls; topology observations do not simulate recovery. See [architecture and placement](ARCHITECTURE.md) for how chunks are assigned.
 
 ## What the screen explains
 
@@ -57,6 +57,6 @@ Use repair_failed when appropriate and fixed, nonsensitive descriptions. If the 
 
 ## Verification and references
 
-Commands are in FRONTEND.md and CONTROLLER.md. `tests/live_controller_check.py --browser` now checks actual chunk placement/highlights, recorded acknowledged/verified transfers and replay as well as the existing upload/download/metadata/delete flow. Dedicated captures are ignored QA artifacts, never runtime fixture data. Read HANDOFF.md for the final verified counts and remaining integration.
+Commands are in [FRONTEND.md](FRONTEND.md) and [ACCEPTANCE.md](ACCEPTANCE.md). `python tests/test_end_to_end.py --large --browser` checks actual placement/highlights, acknowledged/verified transfer observations and replay as well as upload/download/metadata/delete and B's production recovery. The older `live_controller_check.py` is historical pre-recovery evidence. QA captures remain separate from runtime data; the README screenshot is an explicitly published real dashboard capture. Read [HANDOFF.md](HANDOFF.md) for dated verification and publication details.
 
 Primary references: [W3C complex diagrams](https://www.w3.org/WAI/tutorials/images/complex/) for text equivalents, [W3C pause/stop/hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html) for update controls, and [MDN abort composition](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static) / [timeouts](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static) for bounded cancellable polling. CSS/SVG line geometry keeps this fixed topology dependency-free.

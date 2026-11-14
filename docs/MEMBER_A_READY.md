@@ -26,6 +26,6 @@ The normal stack now has B's production recovery and four inventory-verified ava
 
 B's recovery delivery and shared contract are integrated, including an atomic registration fence and consistent timestamp eligibility. The joint five-container check passed admission, two physical copies, failure/repair/rejoin, forged-sidecar corruption, restart persistence and a 50MB roundtrip. Read ACCEPTANCE.md for commands and HANDOFF.md for current evidence. Optional B status/standalone CLI work is separate; A's loader tolerates absence.
 
-For a new Codex or Claude chat, read AGENTS.md then HANDOFF.md. Do not redo completed work, seed production data, or change B's functional files to disguise pending recovery.
+For a new Codex or Claude chat, read AGENTS.md then HANDOFF.md. All integrated work is on master; the merged feature branches were removed at the user's request. Preserve B's verified admission/recovery behavior and original authorship. Use the [documentation index](README.md), [architecture](ARCHITECTURE.md) and [troubleshooting guide](TROUBLESHOOTING.md) before changing a shared boundary.
 
 Frontend hosting and actual worker Start/Stop/Restart are documented in [DEMO.md](DEMO.md). The live layout is Vercel frontend, PC controller/workers and one HTTPS connection. Configure-Demo.ps1 creates an ignored owner key; enter it in Connection settings before using the protected APIs. Prefer http://127.0.0.1:8000/ for the local dashboard. Both local and public browser workflows were verified against B's real recovery.

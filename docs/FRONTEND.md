@@ -1,68 +1,65 @@
-# Artaud storage dashboard
+# Frontend development
 
-The user authorized a frontend in addition to the original API/CLI scope on 14 November 2026. The React/TypeScript interface talks to the real controller on the same origin. It uses original plain-CSS components, Lucide icons and a self-hosted Geist font. No separate cloud hosting service, Node production runtime or third-party runtime font request is needed.
+[Overview](../README.md) · [Live dashboard](https://frontend-nine-iota-19.vercel.app/) · [Design system](../DESIGN.md) · [Demo setup](DEMO.md)
 
-## Run
+The dashboard is React and TypeScript with Vite, plain CSS, Lucide icons and a self-hosted Geist font. It calls the real controller API. Production assets are committed under `controller/static`; no Node process is needed to serve the local app.
 
-The built UI is committed under `controller/static` and is copied by the existing controller Dockerfile. `docker compose up --build -d` serves it at `http://localhost:8000/` alongside the object APIs. Never manufacture ALIVE workers to make the screen look healthy; normal registration remains JOINING until B's reconciler verifies inventories.
+## Develop and build
 
-For frontend development:
+Use a Node.js version supported by the locked Vite dependencies; Node 22.23.2 was used for local verification. From the repository root:
 
-```powershell
+```sh
 cd frontend
 npm ci
 npm run dev
 ```
 
-Vite serves `http://127.0.0.1:5173` and forwards API/health/docs calls to the local controller at port 8000. Start the controller as documented in CONTROLLER.md. Node 22.23.2 was used in this implementation; dependency versions are locked by package-lock.json.
+Vite serves http://127.0.0.1:5173 and proxies API/health/docs calls to the local controller at port `8000`. Start that controller separately. An existing owner-key configuration still applies; enter the key through Connection settings.
 
-After editing, run `npm run build` to typecheck and regenerate the committed controller/static output, then restart/rebuild the controller to load its assets. The output directory is generated and owned by the frontend build; edit frontend/src, not minified assets.
-
-## Features and state boundaries
-
-The Cluster page now contains the live system explorer: actual worker wiring/transfer observations, selected-file chunk placement, storage-distribution bars, recovery observations, filterable activity and JSON exports. Read LIVE_SYSTEM.md for exact semantics, pause/replay behavior, polling limits and the optional B repair hook. scripts/Start-Artaud.ps1 is the verified local startup entry point; MEMBER_A_READY.md explains its use and the remaining shared dependencies.
-
-- File search, MIME-based filtering, sorting and ten-row pagination.
-- Native chooser/drag-and-drop, multi-file queue, per-file cancellation/requeue/error state and actual upload progress. Sending 100% is followed by confirmation; only controller 201 means Stored. Removing a waiting file prevents its later upload.
-- Downloads stream to a user-selected writable file when the browser supports that capability. Other browsers use a Blob/object-URL fallback, which buffers the response and may use browser-managed memory/disk. File chooser cancellation is not reported as download success. Errors stay inside the workspace/inspector.
-- The inspector exposes required metadata, checksum, ordered chunk/replica states, and JSON custom metadata editing. It sends only edited/new top-level keys so unrelated concurrent edits survive. The server still uses last-writer-wins for the same key. Omitting a key preserves it; key deletion is not part of the API.
-- Chunk details refresh when opened, when the overview polls while that tab is open, and after downloads that can discover corruption. Background snapshots never overwrite unsaved metadata text or its edit baseline.
-- Delete requires specific confirmation. In-flight deletion visibly disables the close/keep controls. Offline physical cleanup remains eventual.
-- The cluster rail/page reports actual registered nodes, recorded copies/bytes, fresh-heartbeat availability and replication coverage. It does not invent capacity or throughput. Failed refreshes mark node/replica state unknown; old file lists are labeled as snapshots.
-- Native dialogs supply focus trapping and Escape behavior. Search has a `/` shortcut outside editors/dialogs. Focus rings, contrast, reduced motion and structural layouts at 320/390/768/1280+ widths are tested.
-
-## Tests
-
-```powershell
-cd frontend
+```sh
 npm test
 npm run build
 npx playwright install chromium
 npm run test:e2e
 ```
 
-Frontend unit tests exercise metadata/format/API boundaries. Playwright tests exercise the UI against clearly test-only HTTP fixtures and include WCAG A/AA checks with axe. Fixtures never ship in the production app or replace real API data.
+`npm run build` typechecks and regenerates `controller/static`. Edit source under `frontend/src`, then include the generated static changes and rebuild/recreate the controller. Vercel builds use `dist` instead. Never hand-edit the minified bundle. Normal local builds use the serving controller as the API origin; public builds use `VITE_API_BASE_URL`.
 
-For an actual controller + four real workers, from the checkout root after building both existing Dockerfiles:
+## Main source areas
 
-```powershell
-python tests/live_controller_check.py --controller-image mini-object-store-controller:review --worker-image mini-object-store-worker-review:6a8d653 --browser
+| Area                              | Files                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Application shell and requests    | `src/App.tsx`, `src/api.ts`, `src/connection.ts`                                                                      |
+| File tools                        | `components/ObjectTable.tsx`, `UploadPanel.tsx`, `ObjectInspector.tsx`, `BulkDeleteDialog.tsx`, `src/object-tools.ts` |
+| Cluster and recovery observations | `components/SystemExplorer.tsx`, `TopologyMap.tsx`, `ObjectPlacement.tsx`, `RecoveryPanel.tsx`, `src/useActivity.ts`  |
+| Owner controls and diagnostics    | `components/WorkerManager.tsx`, `ConnectionSettings.tsx`, `RequestDiagnostics.tsx`, `src/diagnostics.ts`              |
+| Visual system                     | `src/styles.css`, `components/system.css`, root `DESIGN.md`                                                           |
+| Verification                      | `src/*.test.ts`, `e2e/workspace.spec.ts`, explicitly invoked live scripts                                             |
+
+## Behavior to preserve
+
+- Upload100% means the browser finished sending, not that storage is confirmed. Only controller201 produces Stored. Waiting files can be removed; in-flight cancellation and retry have explicit states.
+- Downloads use the browser's writable-file capability when supported. The Blob fallback buffers the response and may use browser-managed memory/disk. Chooser cancellation is not success.
+- Metadata editing sends only changed/new top-level keys. Unspecified keys survive, same-key conflicts remain last-writer-wins, and the API does not implement key deletion. Refresh must not overwrite unsaved edits.
+- Search covers filename, ID and literal custom metadata without reading object bytes. Listing exports preserve capture/snapshot labels; CSV neutralizes formula prefixes.
+- Bulk deletion confirms names and DELETE text, performs serial requests, retains unresolved selections and stops after uncertain/auth failures. It never reports an ambiguous response as confirmed deletion.
+- The owner key remains in page memory and is cleared on reload. It never enters build variables, browser storage, screenshots or diagnostic output. Connection preferences are distinct from credentials.
+- Recorded node bytes/counts are not physical free space or disk capacity. Failed refreshes mark state unknown/stale. Container running state is separate from admission and upload-placement pause.
+- Activity is bounded and process-local. Transfer travel/replay is an observation, not packet timing or throughput. Detailed recovery-transfer motion requires explicit events from real recovery. Read [LIVE_SYSTEM.md](LIVE_SYSTEM.md).
+- Preserve focus management, native dialog behavior, keyboard search, reduced motion, text/table alternatives and narrow-screen layouts. Browser tests include axe accessibility checks.
+
+## Test scopes
+
+Vitest covers request, metadata, formatting, connection and export boundaries. Playwright's normal UI suite uses explicit HTTP fixtures, including failure/stale states; those fixtures never ship in the runtime bundle. These checks do not by themselves prove Docker recovery.
+
+For the actual production controller/reconciler plus four real workers, build the integration images and run from the repository root:
+
+```sh
+python tests/test_end_to_end.py --large --browser
 ```
 
-Use image names you built. The harness creates a private test topology and a temporary loopback-only controller port. It first verifies real empty/JOINING state. It then verifies inventories and supplies eligibility in test-only code to exercise browser upload/PATCH/chunks/download/delete, controller failure/corruption handling and large transfers. It removes only its own test resources. It does not substitute for or prove B's production reconciler.
+Install frontend dependencies and Chromium first. This harness creates its own network, containers and volumes; it never manually grants ALIVE. It covers real browser upload/PATCH/chunks/hash-download/delete and actual failure recovery. See [ACCEPTANCE.md](ACCEPTANCE.md) for builds, backend commands and dated results.
 
-## Sources, visual truth and continuation
+`tests/live_controller_check.py` is historical pre-recovery A-only evidence. Do not use it as the current integration gate. The owner-invoked `frontend/e2e/live-public-demo.mjs` targets the actual public demo, privately reads the local key and creates/removes one uniquely named QA object; it is intentionally separate from the normal fixture suite.
 
-Interaction references and direction are in dashboard-design.md; built design tokens belong in the root DESIGN.md. User-facing factual state comes from `/api/v1/objects`, object metadata and `/api/v1/overview`, not the design references.
-
-The Sites plugin was considered and its local-only workflow used: cloud-hosting an interface to private local Docker services would introduce an unnecessary connectivity boundary. The design context binary was unavailable, so product context and the design references were read directly; no automated design detector is claimed. The author inspected browser screenshots directly. An independent visual reviewer could not complete because its service usage limit was reached; no independent visual approval is claimed.
-
-Read HANDOFF.md for current verified counts, publication status and B-owned work still pending.
-
-## Vercel and demo expansion
-
-Read DEMO.md for the requested split frontend/PC deployment. VERCEL builds write dist; normal builds still write controller/static. All API, upload and download calls use the configured backend origin directly. The optional owner key stays in memory. The default activity filter groups successful chunk traffic; All technical events preserves the low-level view. Manage workers separates container start/stop/restart from storage admission and exposes actual action confirmations. The optional walkthrough exports explicitly self-reported notes.
-
-File tools now search name, ID and literal custom metadata keys/scalars (including nested quoted strings/paths) without reading file bytes. Exports include custom metadata, capture time and current/stale snapshot labels; CSV quotes cells and neutralizes spreadsheet-formula prefixes. Selection is explicit per page, can accumulate across pages with a visible note, and clears on filter changes. Bulk DELETE reuses the existing API serially, confirms names/DELETE text, reports each outcome and stops after transport/408/5xx/invalid-response uncertainty or auth failure. It refreshes listings and retains unresolved selection for an intentional retry.
-
-Connection settings can test the draft origin/key before saving them. Recent diagnostics retain at most 60 redacted browser request observations in memory; default view hides successful HTTP responses. Malformed response bodies and post-header download failures remain visible even with 2xx status. Logs omit URLs, IDs, names, headers, bodies, metadata and keys; clearing/changing connection invalidates late old observations. These measurements are browser elapsed time, not worker latency, network throughput or a durable audit trail.
+For continuation, read [HANDOFF.md](HANDOFF.md), [PRODUCT.md](../PRODUCT.md), [DESIGN.md](../DESIGN.md) and [the HTTP contract](../contracts/api-contract.md).
