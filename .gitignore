@@ -12,3 +12,4 @@ stub_controller.py
 .env
 /test-results/
 
+.vercel/
