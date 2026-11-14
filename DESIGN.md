@@ -78,7 +78,7 @@ Tonal layering and thin dividers define normal surfaces. Soft, offset elevation 
 
 ## Shapes
 
-Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type icons 6–12px according to size. Thin borders communicate grouping/state. Small status badges are compact rounded labels rather than large pill containers.
+Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type icons 6â€“12px according to size. Thin borders communicate grouping/state. Small status badges are compact rounded labels rather than large pill containers.
 
 ## Components
 
@@ -95,3 +95,7 @@ Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type 
 - Do preserve the same-origin controller deployment and B-owned recovery boundary.
 - Don't ship QA fixture data, mock network handlers, design briefs or direction metadata in the production UI.
 - Don't add speculative analytics, cloud-provider claims, unsupported capacity percentages or decorative charts.
+
+## Demo controls and quiet activity
+
+Worker management uses the same compact structural rows, native dialogs and explicit disabled/error states. Container running state and controller availability have separate text labels. Stop/restart require a focused confirmation; volumes are not deleted. The activity panel starts with grouped successful operations and individually visible failures; the technical filter retains original event detail. Connection settings hide the owner key and explain the direct backend origin. The walkthrough is a collapsible checklist with clearly self-reported progress, keeping the topology primary.

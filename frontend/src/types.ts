@@ -80,3 +80,15 @@ export interface ActivityBatch {
   truncated: boolean;
   events: ActivityEvent[];
 }
+export interface ManagedWorker extends Worker {
+  base_url: string;
+  display_name: string;
+  notes: string;
+  placement_enabled: boolean;
+  replica_count: number;
+  can_forget: boolean;
+}
+export interface ManagedWorkers {
+  workers: ManagedWorker[];
+  placement_available_workers: number;
+}

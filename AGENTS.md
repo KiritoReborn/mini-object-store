@@ -20,3 +20,7 @@ Member A owns controller main/config/models/database/schema/placement/objects an
 - Recovery/destructive cleanup must share `controller.objects.object_lock(object_id)` and reread current state before mutation.
 - Run the full test suite in Linux Docker because worker directory syncing is Linux-specific. Use focused failing tests before behavioral fixes.
 - Record verified results and unfinished integration in the handoff. A controlled test harness supplying eligibility does not prove B's production reconciler.
+
+## Latest demo direction
+
+Keep worker code and recovery exclusively with Member B. The interim investigation recovery module was removed; do not recreate it to hide JOINING. Current A scope includes optional fixed-worker container demo controls and a Vercel frontend talking directly to the PC HTTPS API. Read docs/DEMO.md and current HANDOFF.md before changing deployment or control behavior. Docker socket access is privileged; preserve explicit opt-in, owner-key authentication and exact container/project allowlists. Never put keys into frontend build variables, screenshots or commits.

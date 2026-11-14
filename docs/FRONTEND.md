@@ -58,3 +58,7 @@ Interaction references and direction are in dashboard-design.md; built design to
 The Sites plugin was considered and its local-only workflow used: cloud-hosting an interface to private local Docker services would introduce an unnecessary connectivity boundary. The design context binary was unavailable, so product context and the design references were read directly; no automated design detector is claimed. The author inspected browser screenshots directly. An independent visual reviewer could not complete because its service usage limit was reached; no independent visual approval is claimed.
 
 Read HANDOFF.md for current verified counts, publication status and B-owned work still pending.
+
+## Vercel and demo expansion
+
+Read DEMO.md for the requested split frontend/PC deployment. VERCEL builds write dist; normal builds still write controller/static. All API, upload and download calls use the configured backend origin directly. The optional owner key stays in memory. The default activity filter groups successful chunk traffic; All technical events preserves the low-level view. Manage workers separates container start/stop/restart from storage admission and exposes actual action confirmations. The optional walkthrough exports explicitly self-reported notes.

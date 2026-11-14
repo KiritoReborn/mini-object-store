@@ -72,12 +72,12 @@ export function ClusterPanel({
       <div className="cluster-availability">
         <span>
           <i
-            className={`status-dot ${!stale && overview?.available_workers === 4 ? "green" : "amber"}`}
+            className={`status-dot ${!stale && overview && overview.worker_count > 0 && overview.available_workers === overview.worker_count ? "green" : "amber"}`}
           />
           {stale
             ? "Last known snapshot"
             : overview
-              ? `${overview.available_workers} of 4 nodes available`
+              ? `${overview.available_workers} of ${overview.worker_count} nodes available`
               : "Checking nodes…"}
         </span>
         <span className="muted">Local network</span>

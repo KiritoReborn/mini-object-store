@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import logging
 import sqlite3
+import secrets
 from contextlib import asynccontextmanager, suppress
 from importlib import import_module
 from pathlib import Path
@@ -13,9 +14,10 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException
 
-from . import config, dashboard, database as db, objects
+from . import config, dashboard, database as db, demo, objects, worker_admin
 from .models import Heartbeat, Registration, StoreError
 
 log = logging.getLogger("controller")
@@ -38,7 +40,7 @@ def _cleanup_downloads():
         objects.remove_download(path)
 
 
-def create_app(*, worker_transport=None) -> FastAPI:
+def create_app(*, worker_transport=None, docker_transport=None) -> FastAPI:
     recovery = _optional_module("controller.recovery")
     status = _optional_module("controller.status")
 
@@ -50,6 +52,8 @@ def create_app(*, worker_transport=None) -> FastAPI:
         async with httpx.AsyncClient(timeout=config.HTTP_TIMEOUT, transport=worker_transport,
                                      trust_env=False, follow_redirects=False) as http:
             app.state.http = http
+            app.state.docker_transport = docker_transport
+            app.state.demo_lock = asyncio.Lock()
             app.state.recovery_available = recovery is not None
             if recovery is not None:
                 started = recovery.start_reconciler()
@@ -72,6 +76,27 @@ def create_app(*, worker_transport=None) -> FastAPI:
     app = FastAPI(title="Mini Distributed Object Store - Controller", version="0.2.0", lifespan=lifespan)
     app.include_router(objects.router)
     app.include_router(dashboard.router)
+    app.include_router(worker_admin.router)
+    app.include_router(demo.router)
+
+    @app.middleware("http")
+    async def protect_api_origin(request: Request, call_next):
+        if request.url.path.startswith("/internal/") and request.url.hostname not in {"controller", "localhost", "127.0.0.1", "::1", "testserver"}:
+            return JSONResponse(status_code=404, content={"error": "NOT_FOUND", "message": "Route not found"})
+        if (request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                and request.url.path.startswith("/api/v1/") and not worker_admin.same_origin(request)):
+            return JSONResponse(status_code=403, content={"error": "ORIGIN_FORBIDDEN",
+                "message": "API changes require a same-origin request"})
+        if request.url.path.startswith("/api/v1/") and config.API_KEY and not secrets.compare_digest(request.headers.get("X-Artaud-Key", "").encode(), config.API_KEY.encode()):
+            return JSONResponse(status_code=401, content={"error": "AUTH_REQUIRED", "message": "Enter the owner access key in Connection settings"})
+        return await call_next(request)
+
+    if config.ALLOWED_ORIGINS:
+        app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
+                           allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                           allow_headers=["Content-Type", "X-Artaud-Key", "X-Artaud-Admin", "ngrok-skip-browser-warning"],
+                           expose_headers=["X-Object-SHA256", "ETag", "Content-Disposition"])
+
     if status is not None:
         app.include_router(status.router)
     if (STATIC_DIR / "assets").is_dir():

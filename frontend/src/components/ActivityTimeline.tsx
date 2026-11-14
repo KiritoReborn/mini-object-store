@@ -7,7 +7,12 @@ import {
   Search,
 } from "lucide-react";
 import { bytes } from "../format";
-import { eventLabel, timeLabel, type ActivityHistory } from "../system";
+import {
+  eventLabel,
+  quietActivity,
+  timeLabel,
+  type ActivityHistory,
+} from "../system";
 import type { ActivityEvent, StoredObject, Worker } from "../types";
 
 export function ActivityTimeline({
@@ -35,10 +40,10 @@ export function ActivityTimeline({
   onInspect: (object: StoredObject) => void;
   onRetry: () => void;
 }) {
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState("summary");
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(12);
-  const events = [...(history?.events ?? [])].reverse().filter((event) => {
+  const filtered = [...(history?.events ?? [])].filter((event) => {
     const object = objects.find(
       (object) => object.object_id === event.object_id,
     );
@@ -46,6 +51,7 @@ export function ActivityTimeline({
       (!workerId || event.worker_id === workerId) &&
       (!objectId || event.object_id === objectId) &&
       (category === "all" ||
+        category === "summary" ||
         (category === "transfers"
           ? event.kind.startsWith("transfer_")
           : category === "recovery"
@@ -56,6 +62,11 @@ export function ActivityTimeline({
         .includes(search.toLowerCase().trim())
     );
   });
+  const events = (
+    category === "summary"
+      ? quietActivity(filtered)
+      : filtered.map((event) => ({ ...event, group_count: 1 }))
+  ).reverse();
   return (
     <section
       className="system-section activity-section"
@@ -67,8 +78,8 @@ export function ActivityTimeline({
             <Activity size={18} /> Recent activity
           </h2>
           <p>
-            Controller observations in this process session. Up to 512 events;
-            not a permanent audit log.
+            A quiet summary of completed work and problems. Switch to technical
+            events for individual chunk attempts.
           </p>
         </div>
         <span className="system-count">
@@ -111,7 +122,8 @@ export function ActivityTimeline({
             setLimit(12);
           }}
         >
-          <option value="all">All activity</option>
+          <option value="summary">Operation summary</option>
+          <option value="all">All technical events</option>
           <option value="transfers">Transfers</option>
           <option value="recovery">Replicas &amp; recovery</option>
           <option value="changes">State &amp; file changes</option>
@@ -191,6 +203,12 @@ export function ActivityTimeline({
                     </small>
                   )}
                   {event.detail && <small>{event.detail}</small>}
+                  {event.group_count > 1 && (
+                    <small>
+                      {event.group_count} similar successful events grouped ·
+                      latest shown
+                    </small>
+                  )}
                 </div>
                 <div className="event-actions">
                   <time dateTime={event.timestamp} title={event.timestamp}>

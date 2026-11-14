@@ -4,7 +4,7 @@ import { errorMessage } from "./format";
 import { mergeActivity, type ActivityHistory } from "./system";
 import type { ActivityBatch } from "./types";
 
-export function useActivity(paused: boolean) {
+export function useActivity(paused: boolean, pollInterval = 2000) {
   const [history, setHistory] = useState<ActivityHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export function useActivity(paused: boolean) {
     let timer: number | undefined;
     const poll = async () => {
       if (document.hidden) {
-        timer = window.setTimeout(() => void poll(), 2000);
+        timer = window.setTimeout(() => void poll(), pollInterval);
         return;
       }
       try {
@@ -63,7 +63,7 @@ export function useActivity(paused: boolean) {
         if (!controller.signal.aborted) setError(errorMessage(error));
       } finally {
         if (!controller.signal.aborted)
-          timer = window.setTimeout(() => void poll(), 2000);
+          timer = window.setTimeout(() => void poll(), pollInterval);
       }
     };
     void poll();
@@ -71,6 +71,6 @@ export function useActivity(paused: boolean) {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [paused, retry]);
+  }, [paused, retry, pollInterval]);
   return { history, error, capturedAt, refresh };
 }

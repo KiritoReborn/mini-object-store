@@ -54,7 +54,7 @@ try {
     );
   } else {
     const payload = Buffer.alloc(1_000_001, 0x61),
-      name = "browser-roundtrip.bin";
+      name = `browser-roundtrip-${Date.now()}.bin`;
     await page.locator("input[type=file]").setInputFiles({
       name,
       mimeType: "application/octet-stream",

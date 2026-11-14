@@ -1,4 +1,5 @@
 import type { StoredObject } from "./types";
+import { apiUrl, connectionHeaders } from "./connection";
 
 async function responseError(response: Response): Promise<Error> {
   const body = await response.json().catch(() => null);
@@ -15,9 +16,13 @@ export async function request<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(apiUrl(path), {
       ...options,
-      headers: { Accept: "application/json", ...options?.headers },
+      headers: {
+        Accept: "application/json",
+        ...connectionHeaders(),
+        ...options?.headers,
+      },
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError")
@@ -46,7 +51,9 @@ export function uploadFile(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const abort = () => xhr.abort();
-    xhr.open("POST", "/api/v1/objects");
+    xhr.open("POST", apiUrl("/api/v1/objects"));
+    for (const [name, value] of Object.entries(connectionHeaders()))
+      xhr.setRequestHeader(name, value);
     xhr.timeout = 180_000;
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable)
@@ -116,7 +123,8 @@ export async function downloadFile(
     }
   }
   const response = await fetch(
-    `/api/v1/objects/${encodeURIComponent(object.object_id)}`,
+    apiUrl(`/api/v1/objects/${encodeURIComponent(object.object_id)}`),
+    { headers: connectionHeaders() },
   );
   if (!response.ok) throw await responseError(response);
   if (target && response.body) {

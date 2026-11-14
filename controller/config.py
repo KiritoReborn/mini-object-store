@@ -18,3 +18,11 @@ HTTP_TIMEOUT = _positive("HTTP_TIMEOUT", "5", float)
 DATABASE_PATH = os.getenv("DATABASE_PATH", "/data/metadata.db")
 DOWNLOAD_TEMP_DIR = Path(os.getenv("DOWNLOAD_TEMP_DIR", str(Path(DATABASE_PATH).parent / "downloads")))
 MAX_METADATA_BYTES = 32_768
+API_KEY = os.getenv("ARTAUD_API_KEY", "")
+ALLOWED_ORIGINS = [value.strip().rstrip("/") for value in os.getenv("ARTAUD_ALLOWED_ORIGINS", "").split(",") if value.strip()]
+DEMO_CONTROLS = os.getenv("ARTAUD_DEMO_CONTROLS", "false").lower() == "true"
+DOCKER_PROJECT = os.getenv("ARTAUD_DOCKER_PROJECT", "mini-object-store")
+if API_KEY and len(API_KEY) < 32:
+    raise ValueError("ARTAUD_API_KEY must contain at least 32 characters")
+if DEMO_CONTROLS and not API_KEY:
+    raise ValueError("Demo controls require ARTAUD_API_KEY")

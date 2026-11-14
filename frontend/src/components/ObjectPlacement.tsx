@@ -21,6 +21,7 @@ export function ObjectPlacement({
   onObjectChange,
   onInspect,
   onHighlight,
+  pollInterval,
 }: {
   objects: StoredObject[];
   overview: Overview | null;
@@ -30,6 +31,7 @@ export function ObjectPlacement({
   onObjectChange: (id: string) => void;
   onInspect: (object: StoredObject) => void;
   onHighlight: (workers: string[] | null) => void;
+  pollInterval: number;
 }) {
   const [details, setDetails] = useState<ObjectDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export function ObjectPlacement({
     let timer: number | undefined;
     const poll = async () => {
       if (document.hidden) {
-        timer = window.setTimeout(() => void poll(), 2000);
+        timer = window.setTimeout(() => void poll(), pollInterval);
         return;
       }
       setLoading(true);
@@ -90,7 +92,7 @@ export function ObjectPlacement({
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
-          timer = window.setTimeout(() => void poll(), 2000);
+          timer = window.setTimeout(() => void poll(), pollInterval);
         }
       }
     };
@@ -99,7 +101,7 @@ export function ObjectPlacement({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [objectId, paused, refresh]);
+  }, [objectId, paused, refresh, pollInterval]);
   const validDetails = details?.object_id === objectId ? details : null;
   const workers = overview?.workers ?? [];
   const pages = Math.max(1, Math.ceil((validDetails?.chunks.length ?? 0) / 8));

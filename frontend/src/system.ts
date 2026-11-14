@@ -45,6 +45,8 @@ export function eventLabel(event: ActivityEvent): string {
     if (!event.state) return "Replica record removed";
     return `Replica ${event.state.toLowerCase().replaceAll("_", " ")}`;
   }
+  if (event.kind === "worker_action")
+    return `Container ${event.state ?? "action"} completed`;
   return (
     (
       {
@@ -58,6 +60,32 @@ export function eventLabel(event: ActivityEvent): string {
       } as Record<string, string>
     )[event.kind] ?? event.kind.replaceAll("_", " ")
   );
+}
+
+export function quietActivity(
+  events: ActivityEvent[],
+): (ActivityEvent & { group_count: number })[] {
+  const rows = new Map<string, ActivityEvent & { group_count: number }>();
+  for (const event of events) {
+    if (event.kind === "transfer_started" || event.kind === "repair_started")
+      continue;
+    if (
+      event.kind === "replica_state" &&
+      !["CORRUPT", "MISSING"].includes(event.state ?? "") &&
+      !["CORRUPT", "MISSING"].includes(event.previous_state ?? "")
+    )
+      continue;
+    // Group successes by file, direction and minute; retain each failed attempt individually.
+    const key =
+      event.kind === "transfer_completed"
+        ? `${event.object_id}:${event.direction}:${event.timestamp.slice(0, 16)}`
+        : String(event.id);
+    rows.set(key, {
+      ...event,
+      group_count: (rows.get(key)?.group_count ?? 0) + 1,
+    });
+  }
+  return [...rows.values()].sort((a, b) => a.id - b.id);
 }
 
 export function replicaLabel(
