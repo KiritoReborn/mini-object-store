@@ -9,6 +9,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from . import config, telemetry
 from .placement import heartbeat_is_fresh
@@ -36,6 +37,8 @@ def init_db() -> None:
     with connection() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
+        conn.execute("""INSERT OR IGNORE INTO worker_registrations(worker_id, token)
+            SELECT worker_id, lower(hex(randomblob(16))) FROM workers""")
 
 
 def prepare_restart() -> None:
@@ -57,9 +60,36 @@ def register_worker(worker_id: str, base_url: str) -> None:
             ON CONFLICT(worker_id) DO UPDATE SET base_url=excluded.base_url,
             last_heartbeat=excluded.last_heartbeat, status='JOINING'""",
             (worker_id, base_url, utc_now()))
+        _record_registration(conn, worker_id)
     previous = before[0] if before else None
     if previous != "JOINING":
         telemetry.record_event("worker_state", worker_id=worker_id, previous_state=previous, state="JOINING")
+
+
+def _record_registration(conn, worker_id: str) -> None:
+    conn.execute("""INSERT INTO worker_registrations VALUES (?, ?)
+        ON CONFLICT(worker_id) DO UPDATE SET token=excluded.token""", (worker_id, uuid4().hex))
+
+
+def get_worker_registration(worker_id: str) -> str | None:
+    with connection() as conn:
+        row = conn.execute("SELECT token FROM worker_registrations WHERE worker_id=?", (worker_id,)).fetchone()
+        return row[0] if row else None
+
+
+def complete_worker_admission(worker_id: str, expected_heartbeat: str, registration: str | None) -> bool:
+    """Only the registration whose inventory was verified may become ALIVE."""
+    if registration is None:
+        return False
+    with connection() as conn:
+        updated = conn.execute("""UPDATE workers SET status='ALIVE'
+            WHERE worker_id=? AND status='JOINING' AND last_heartbeat=?
+            AND EXISTS (SELECT 1 FROM worker_registrations r
+                        WHERE r.worker_id=workers.worker_id AND r.token=?)""",
+            (worker_id, expected_heartbeat, registration)).rowcount == 1
+    if updated:
+        telemetry.record_event("worker_state", worker_id=worker_id, previous_state="JOINING", state="ALIVE")
+    return updated
 
 
 def touch_heartbeat(worker_id: str) -> bool:
@@ -167,6 +197,7 @@ def connect_managed_worker(worker_id: str, base_url: str, changes: dict) -> dict
             raise ValueError("Worker is already registered at a different origin")
         if before is None:
             conn.execute("INSERT INTO workers VALUES (?, ?, ?, 'JOINING')", (worker_id, base_url, utc_now()))
+            _record_registration(conn, worker_id)
         changed = _write_worker_settings(conn, worker_id, changes)
         worker = _managed_workers(conn, worker_id)[0]
     if before is None:

@@ -33,25 +33,26 @@ curl.exe http://localhost:8000/api/v1/objects
 ```
 
 Replace the returned object ID for metadata/download/delete calls; see the contract for exact endpoints. Swagger API docs are available at `/docs`.
+When ARTAUD_API_KEY is configured, protected API requests also require X-Artaud-Key from the private local .env. The default clean-checkout local profile does not require that optional demo key; the public demo does.
 
 ## Integration status
 
-B's worker code is present. B's recovery/status/CLI are not present at implementation time. Normal registration therefore leaves workers JOINING and a nonempty upload returns 503 until B supplies inventory reconciliation and ALIVE promotion. This is an intentional safety boundary. Health reports recovery_available=false. Do not patch registration or heartbeat to force ALIVE.
+B's worker and recovery code are integrated. Normal registration writes JOINING; B verifies inventory and DB-authoritative bytes before atomic admission. The installed module reports recovery_available=true, and actual worker availability remains a separate overview result. Existing startup/shutdown hooks required no production change. Optional status.py/standalone B CLI remain separate; no missing status router is included.
 
-Controlled live tests may verify an empty inventory and explicitly supply eligibility in a disposable test topology to exercise A's object path. That does not prove the unfinished B reconciliation or satisfy the complete C4 recovery gate.
+The historical live_controller_check.py exercised A's path with test-only eligibility before B existed. It intentionally expects absent recovery and is not the current joint gate. Use the production-recovery acceptance check below; it never sets ALIVE itself.
 
-Run the repeatable controlled integration check from the checkout root after the builds above:
+Run the joint integration check from the checkout root after the builds above:
 
 ```powershell
-python tests/live_controller_check.py --controller-image mini-object-store-controller:local --worker-image mini-object-store-worker:local
+python tests/test_end_to_end.py --controller-image mini-object-store-controller:local --worker-image mini-object-store-worker:local --large
 ```
 
-It creates a private Docker network and five disposable containers with their own new volumes, exercises all six public APIs, a 5000001-byte object, worker stop/start, corruption fallback, controller restart and a 50000000-byte streamed object, then removes only those test resources. It publishes no ports and does not touch project volumes. Explicit inventory-based worker eligibility exists only inside the test harness.
+It creates a private Docker network and five disposable containers with new labelled volumes, publishing only a random loopback controller port. It exercises all six APIs, a 5000001-byte object/two physical copies, actual B admission/stop/repair/rejoin/corruption, restart and optional 50000000-byte streaming, then removes only its own resources. Add --browser for the actual UI workflow. See ACCEPTANCE.md for scope and evidence.
 
 ## Limits and operational behavior
 
 - Single controller/SQLite metadata DB is a single point of failure; this is a local course project, not a production cloud service.
-- Internal APIs trust the local network; authentication, TLS, quotas, controller replication and cloud deployment are outside the agreed scope.
+- Internal worker APIs trust the Docker network and are rejected through the public tunnel. Optional owner-key API protection and exact CORS support the Vercel/PC HTTPS demo; controller replication, multi-user permissions and durable audit history are outside this release.
 - Metadata is durable in controller_data; workers have independent data volumes. Never delete project volumes when checking persistence.
 - Upload rollback and deletion clean reachable copies. Unreachable or late-finishing ambiguous writes require eventual inventory cleanup by B, including live-worker inventory scans.
 - Interrupted UPLOADING rows become FAILED on restart; cleanup is scheduled after startup. Existing workers become JOINING and must be reconciled again. Abandoned download temp files are removed only from the controller-owned temp directory.

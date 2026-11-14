@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def system(tmp_path, monkeypatch):
+def system(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, database
     from controller.main import create_app
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
@@ -102,6 +102,20 @@ def test_empty_file_needs_no_workers_and_has_empty_checksum(system):
     assert obj["num_chunks"] == 0
     assert obj["sha256"] == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     assert client.get(f'/api/v1/objects/{obj["object_id"]}').content == b""
+
+
+@pytest.mark.parametrize("size,chunk_sizes", [
+    (1_000_000, [1_000_000]), (1_000_001, [1_000_000, 1]),
+])
+def test_public_upload_chunk_boundaries(system, size, chunk_sizes):
+    client, _, _, _ = system
+    content = b"x" * size
+    response = upload(client, content)
+    assert response.status_code == 201, response.text
+    obj = response.json()
+    assert obj["num_chunks"] == len(chunk_sizes)
+    assert [chunk["size"] for chunk in obj["chunks"]] == chunk_sizes
+    assert obj["sha256"] == hashlib.sha256(content).hexdigest()
 
 
 @pytest.mark.parametrize("body", ["{bad", "[]", '{"size":4}', '{"x":NaN}', '"text"'])

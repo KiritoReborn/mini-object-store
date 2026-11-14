@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def demo(tmp_path, monkeypatch):
+def demo(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, main
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
     monkeypatch.setattr(config, "DOWNLOAD_TEMP_DIR", tmp_path / "downloads")

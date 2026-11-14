@@ -3,6 +3,9 @@ x-worker: &worker
     context: .
     dockerfile: Dockerfile.worker
   restart: unless-stopped
+  environment: &worker-runtime
+    CHUNK_SIZE: ${CHUNK_SIZE:-1000000}
+    HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-5}
   healthcheck:
     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2).close()"]
     interval: 10s
@@ -20,11 +23,16 @@ services:
     environment:
       ARTAUD_API_KEY: ${ARTAUD_API_KEY:-}
       ARTAUD_ALLOWED_ORIGINS: ${ARTAUD_ALLOWED_ORIGINS:-}
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000000}
+      WORKER_DEAD_TIMEOUT: ${WORKER_DEAD_TIMEOUT:-15}
+      RECONCILE_INTERVAL: ${RECONCILE_INTERVAL:-5}
+      HTTP_TIMEOUT: ${HTTP_TIMEOUT:-5}
 
   worker1:
     <<: *worker
     container_name: worker1
     environment:
+      <<: *worker-runtime
       WORKER_ID: worker1
       CONTROLLER_URL: ${CONTROLLER_URL:-http://controller:8000}
     volumes: [worker1_data:/data]
@@ -33,6 +41,7 @@ services:
     <<: *worker
     container_name: worker2
     environment:
+      <<: *worker-runtime
       WORKER_ID: worker2
       CONTROLLER_URL: ${CONTROLLER_URL:-http://controller:8000}
     volumes: [worker2_data:/data]
@@ -41,6 +50,7 @@ services:
     <<: *worker
     container_name: worker3
     environment:
+      <<: *worker-runtime
       WORKER_ID: worker3
       CONTROLLER_URL: ${CONTROLLER_URL:-http://controller:8000}
     volumes: [worker3_data:/data]
@@ -49,6 +59,7 @@ services:
     <<: *worker
     container_name: worker4
     environment:
+      <<: *worker-runtime
       WORKER_ID: worker4
       CONTROLLER_URL: ${CONTROLLER_URL:-http://controller:8000}
     volumes: [worker4_data:/data]

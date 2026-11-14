@@ -15,3 +15,4 @@ stub_controller.py
 .vercel/
 .vercel
 .env*
+!.env.example

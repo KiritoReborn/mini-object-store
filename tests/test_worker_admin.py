@@ -14,7 +14,7 @@ ADMIN = {"X-Artaud-Admin": "1"}
 
 
 @pytest.fixture
-def admin(tmp_path, monkeypatch):
+def admin(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, database, main, telemetry
 
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))

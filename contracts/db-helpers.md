@@ -35,6 +35,7 @@ Invalid persisted enum values fail SQLite CHECK constraints. These helpers inten
 ## Recovery coordination required from B
 
 1. `register_worker` always writes JOINING. A heartbeat from DEAD only updates time. B recognizes the fresh heartbeat as rejoin, changes to JOINING, inventories/verifies, then promotes to ALIVE. Use compare-and-set when old heartbeat observations could overwrite newer ones.
+   For inventory admission, capture `get_worker_registration(worker_id)` before requesting inventory and finish with `complete_worker_admission(worker_id, current_heartbeat, captured_token)`. A new same-origin registration invalidates the inventory; normal heartbeat refreshes do not.
 2. Before destructive work, use `async with controller.objects.object_lock(object_id)`, then reread current state. A holds the same lock for upload, verified-download preparation, PATCH and DELETE. Do not import main.py from recovery.py; objects.py does not import recovery.py.
 3. An inventory snapshot or `known_chunk_ids()` snapshot can become stale. Parse object_id from the validated chunk ID, acquire its lock and reread current state before orphan deletion. UPLOADING chunk rows exist before PUT; never delete those chunks.
 4. A marks successful replica PUTs HEALTHY, missing download copies MISSING, and corrupt/size/hash-mismatching copies CORRUPT. A transport timeout alone does not imply corruption.
@@ -56,3 +57,12 @@ Other A-owned helpers are visible in database.py for object lifecycle. B should 
 The additive worker_settings table stores display_name/notes and placement_enabled with a cascading foreign key to workers. Missing settings use empty labels/notes and placement enabled. Existing workers/replicas columns and frozen helper return shapes are unchanged.
 
 A uploads call get_placement_workers(), which returns the same shape as get_workers() while excluding placement-disabled nodes. B continues using get_workers(); a presentation pause does not silently change B's repair policy. get_managed_workers/connect_managed_worker/update_worker_settings/forget_worker serve the UI routes, not the frozen recovery boundary. Forget checks heartbeat and all replica states under a single immediate transaction; invalid, naive or future heartbeats remain protected. Settings events publish only after commit.
+
+## Shared registration admission fence
+
+The additive worker_registrations table stores a non-secret 32-character token per worker and cascades on worker deletion. Every registration rotates it in the same transaction that writes JOINING; connecting a new record creates a token. Heartbeats preserve it. init_db backfills legacy worker records without changing existing tokens, state or the frozen worker dictionary.
+
+- `get_worker_registration(worker_id) -> str | None`: capture this token before inventory/byte verification. Missing token cannot authorize admission.
+- `complete_worker_admission(worker_id, expected_heartbeat, registration_token) -> bool`: one atomic conditional UPDATE admits only a JOINING worker whose heartbeat and registration token still match. It publishes JOINING→ALIVE after commit. It does not verify bytes; B must complete verification first.
+
+This separates process registration from routine heartbeat freshness. Re-reading the latest heartbeat alone cannot fence a same-origin restart during a long inventory; requiring the initial heartbeat to remain unchanged would instead starve admission whenever verification spans a heartbeat interval. All components reject timezone-naive, invalid, absent or future timestamps as unavailable.

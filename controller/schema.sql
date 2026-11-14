@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS worker_settings (
     notes TEXT NOT NULL DEFAULT '',
     placement_enabled INTEGER NOT NULL DEFAULT 1 CHECK(placement_enabled IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS worker_registrations (
+    worker_id TEXT PRIMARY KEY REFERENCES workers(worker_id) ON DELETE CASCADE,
+    token TEXT NOT NULL CHECK(length(token) = 32)
+);
 CREATE TABLE IF NOT EXISTS replicas (
     chunk_id TEXT NOT NULL REFERENCES chunks(chunk_id) ON DELETE CASCADE,
     worker_id TEXT NOT NULL REFERENCES workers(worker_id),
