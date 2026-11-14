@@ -2,6 +2,8 @@
 
 Read this first in Codex, Claude or a new chat. Latest user instructions override earlier planning history. Integration was merged into master through [PR #4](https://github.com/KiritoReborn/mini-object-store/pull/4), merge commit cfe2ecf3f25c3cdadb2c16dd3509b11a62e3722d. The workspace is on master; use git log/status for later documentation commits.
 
+User now wants one branch. The repository's default branch is named master; all A/B work is there. After fetching and verifying both feature heads were ancestors of master, feature/controller and feature/workers were deleted remotely, and the local feature/controller branch was removed. Only master remains locally/remotely; original teammate commits remain in its history. Continue directly on master unless the user changes this preference.
+
 ## Delivered scope and ownership
 
 Member A owns controller/API/database/frontend; Member B delivered worker storage and production recovery in feature/workers at 2924a6db81c5635462d162c4f683889ad1584231 (c3821e1 code, 2924a6d handoff). No open worker PR existed when inspected, so PR #4 merged the verified combined branch and preserved B's original commits as ancestors. Worker source is unchanged. Optional status.py/standalone B CLI remain absent; main.py includes status.router only when that module actually exists. Existing synchronous-start/awaitable-stop hookup required no production change.
@@ -46,6 +48,10 @@ Literal name/ID/custom-metadata search never downloads file bytes. CSV/JSON list
 
 ## Final publication / continuation
 
-Publication is complete: [PR #4](https://github.com/KiritoReborn/mini-object-store/pull/4) merged tested head30e6e8829196d171b3580c373c2b7ae68bf56b5c into master at cfe2ecf3f25c3cdadb2c16dd3509b11a62e3722d. GitHub accepted the exact expected head; local master fast-forwarded to the remote merge, with identical tested content and B head2924a6d retained as an ancestor. This final handoff-only follow-up records the result. No force pushes or branch deletion. Keep worker source unchanged and preserve B ownership.
+Publication is complete: [PR #4](https://github.com/KiritoReborn/mini-object-store/pull/4) merged tested head30e6e8829196d171b3580c373c2b7ae68bf56b5c into master at cfe2ecf3f25c3cdadb2c16dd3509b11a62e3722d. GitHub accepted the exact expected head; local master fast-forwarded to the remote merge, with identical tested content and B head2924a6d retained as an ancestor. Documentation follow-ups record the result and user's single-branch preference. No force pushes. Keep worker source unchanged and preserve B ownership.
+
+## Worker 3 persistence investigation, 2026-11-14
+
+User stopped/started worker3 and observed zero chunks. Read-only inspection confirmed the same container (created04:49:23UTC), same mini-object-store_worker3_data named volume (created04:49:23UTC), and restart14:00:32UTC. At14:00:36UTC B logged SURPLUS_DELETED for six returning chunks (indices0,2,4,6,8,10), after fetching/verifying two copies elsewhere, then admitted worker3 ALIVE. This is deliberate surplus cleanup after failover, not Docker volume loss. All four workers are ALIVE. Independent reads/checksums verified both current objects (428029bytes/1chunk and10613808bytes/11chunks), exactly two valid copies of every chunk on workers1/2/4, and matching whole-object hashes. No object, chunk, volume or worker was changed during diagnosis. Recovery does not automatically rebalance existing healthy copies onto an empty returned worker; new placement may use it. See DEMO.md for the explanation. No B-owned behavior was changed.
 
 For local startup use scripts/Start-Artaud.ps1 (optional -DemoControls); no Node server is required. See README.md, docs/ACCEPTANCE.md, docs/DEMO.md and contracts/*.md for explanation and repeatable checks. Optional B CLI/status and deeper repair telemetry are separate coordination items, not missing core upload/admission/recovery behavior. Future features/backlog are in docs/research/2026-11-14-controller-frontend-features.md; avoid reimplementing B recovery or adding deployment infrastructure.

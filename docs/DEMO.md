@@ -63,6 +63,12 @@ This uses exact-origin CORS, not a wildcard. In the frontend, open Connection se
 - Recovery panel: show only actual replica states and repair events from the teammate's implementation. Starting a container is not proof of completed recovery. No manual ALIVE or fake repair button exists.
 - Demo walkthrough: track presentation steps and export self-reported notes. Checkmarks are operator notes, not automated verification.
 
+### Why a restarted worker can become empty
+
+Stop/Start preserves the named Docker volume. Recovery can subsequently delete surplus chunks from that volume: while a worker is down, replacement copies are made elsewhere to restore the required two replicas. On rejoin, B verifies the returning chunk and two other copies against the controller's checksums, then removes the third copy. Every old chunk on the returning worker can be surplus, so an ALIVE worker with zero chunks is valid. Recovery restores redundancy; it does not automatically rebalance existing healthy chunks across all workers. New uploads can use the returned worker when placement is enabled.
+
+For diagnosis, distinguish an unchanged named volume plus SURPLUS_DELETED recovery logs from actual volume loss. Current code never deletes a healthy surplus chunk without verifying two other copies first. Persistent storage survives container Stop/Start, but application cleanup still changes its contents.
+
 ## Joining diagnosis and current boundary
 
 B delivered controller/recovery.py and its tests. The combined normal stack now has four verified ALIVE workers; nonempty file operations and actual repair/rejoin passed the joint live gate. JOINING remains the correct temporary startup state while inventory is verified. If it persists, inspect recovery/worker logs, heartbeat freshness and inventory errors rather than manually granting ALIVE. The old investigation implementation is not used; current recovery is B's delivered module with reviewed shared-boundary corrections. See HANDOFF.md for live URLs and ACCEPTANCE.md for repeatable evidence.
