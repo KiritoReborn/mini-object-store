@@ -810,9 +810,26 @@ progress::-webkit-progress-value {
 }
 .table-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin: 14px 0 16px;
+}
+.table-toolbar .search-field {
+  flex: 1 1 260px;
+}
+.table-toolbar select[aria-label="Search scope"] {
+  max-width: 200px;
+}
+@media (max-width: 860px) {
+  .table-toolbar .search-field {
+    flex-basis: 100%;
+  }
+  .table-toolbar select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
 }
 .search-field {
   display: flex;
@@ -2363,4 +2380,122 @@ textarea[aria-invalid="true"] {
 .inspector-feedback.error {
   background: #fff0f1;
   color: #a22938;
+}
+.listing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.listing-actions > span {
+  flex: 1 1 230px;
+  font-size: 12px;
+  color: var(--muted, #637068);
+  line-height: 1.6;
+}
+.listing-actions .button {
+  min-height: 34px;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.button.danger {
+  background: #a5342b;
+  border-color: #a5342b;
+  color: #fff;
+}
+.button.danger:hover:not(:disabled) {
+  background: #87251e;
+}
+.object-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0 12px 0 0;
+  flex: none;
+  accent-color: #08694f;
+  vertical-align: middle;
+}
+.object-table th:first-child > button {
+  display: inline-flex;
+}
+.batch-results {
+  padding: 0;
+  list-style: none;
+  max-height: 34vh;
+  overflow: auto;
+  border-block: 1px solid #dce4df;
+  margin: 20px 0;
+}
+.batch-results li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf0ee;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.batch-results li > span {
+  flex: 1;
+  min-width: 0;
+}
+.batch-results strong {
+  font-size: 12px;
+}
+.batch-results small {
+  flex-basis: 100%;
+  color: #8c342a;
+}
+.request-diagnostics {
+  margin-top: 20px;
+  border-top: 1px solid #dce4df;
+  padding-top: 16px;
+}
+.request-diagnostics summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+}
+.request-diagnostics label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.request-diagnostics input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: #08694f;
+}
+.request-log {
+  max-height: 230px;
+  overflow: auto;
+  padding: 0;
+  list-style: none;
+}
+.request-log li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf0ee;
+  font-size: 12px;
+}
+.request-log time {
+  flex-basis: 100%;
+  color: #637068;
+}
+.request-diagnostics .dialog-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.selection-note {
+  color: #637068;
+  font-size: 12px;
+  margin: 0 0 16px;
 }

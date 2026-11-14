@@ -1,6 +1,6 @@
 # Mini Distributed Cloud Object Store
 
-Member A's controller and Member B's worker foundation are implemented. The
+Member A's controller/frontend and Member B's worker/recovery are integrated. The
 controller provides all six object APIs, persistent SQLite metadata, placement,
 replicated upload, verified download, and registration/heartbeat endpoints.
 See [the controller guide](docs/CONTROLLER.md), [current handoff](docs/HANDOFF.md),
@@ -19,10 +19,12 @@ recovery observations and JSON diagnostic exports. See [the visual system guide]
 Windows startup is available through `scripts/Start-Artaud.ps1`; [Member A readiness](docs/MEMBER_A_READY.md)
 records the one-command setup and the remaining shared integration boundary.
 
-**Integration pending:** B's recovery/status/CLI are not delivered yet. Registered
-workers safely stay JOINING, so nonempty uploads return 503 until inventory
-reconciliation promotes them to ALIVE. `/health` reports `recovery_available`.
-Neither registration nor heartbeat is a promotion shortcut.
+**Recovery:** registered/restarted workers stay JOINING while B verifies inventory
+and bytes, then become ALIVE. Failure detection, verified repair, rejoin/orphan
+cleanup and restart persistence have passed the joint live checks. `/health`
+reports whether the module is installed; overview reports actual eligibility.
+Neither registration nor heartbeat is a promotion shortcut. Optional B status/CLI
+modules are separate; missing status.py is not imported as a router.
 
 The workers store chunks under `/data/chunks`, using one named Docker volume per
 worker. The controller's SQLite hash remains the source of truth for integrity;
@@ -68,8 +70,26 @@ python -m pytest tests/test_worker.py -v
 
 Tests isolate storage in temporary directories and replace external HTTP only.
 For the complete suite on Windows, use the Linux Docker test command in the
-controller guide; worker directory syncing is Linux-specific. A repeatable
-controlled four-worker integration check is documented there too.
+controller guide; worker directory syncing is Linux-specific. The joint
+[acceptance guide](docs/ACCEPTANCE.md) records the API requirements, test results,
+ownership and repeatable five-container check:
+
+```sh
+docker build -f Dockerfile.controller -t mini-object-store-controller:integration .
+docker build -f Dockerfile.worker -t mini-object-store-worker:integration .
+python tests/test_end_to_end.py --large
+```
+
+Add `--browser` after installing the frontend test dependencies/Chromium to
+exercise actual UI operations too. `sh scripts/demo.sh --large` runs the same
+isolated acceptance flow. No manual ALIVE override is used. Normal unit runs skip
+this explicitly invoked live check.
+
+Chunk size defaults to 1000000 bytes and is forwarded consistently through
+Compose; heartbeat/death/reconcile defaults are 5/15/5 seconds. Replication is fixed
+at two distinct workers. The optional Docker-socket UI controls are owner-demo
+conveniences; the assignment commands `docker stop worker2` / `docker start worker2`
+work directly and preserve volumes. See [DEMO.md](docs/DEMO.md) for the privileged overlay and key.
 
 ## Known limitations
 
@@ -85,8 +105,8 @@ controlled four-worker integration check is documented there too.
   can leave a corrupt pair; GET rejects it and PUT can repair it. Startup removes
   abandoned temporary files. Inventory may report a null checksum for a missing
   or malformed sidecar; it does not verify data against the controller's hash.
-- The five direct dependencies are pinned; transitive dependencies are not
-  locked, and the shared requirements still include test tooling.
+- Production framework versions are pinned; the async test plugin/transitive
+  dependencies are not fully locked, and shared requirements include test tooling.
 
 ## Simple online demo option
 

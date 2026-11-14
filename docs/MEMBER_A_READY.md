@@ -20,12 +20,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Artaud.ps1 -
 
 This installs the locked frontend dependencies and regenerates the production build before starting Docker. No credentials, cloud account, new hosting service, or configuration overwrite is required for the existing local stack. Stop normally with `docker compose down` to retain stored data.
 
-## Shared completion still requires Member B
+## Joint integration verified
 
-The normal stack currently registers four workers, but its missing production recovery service leaves them JOINING. Nonempty file storage requires two inventory-verified available workers. A's code deliberately preserves this correctness rule. Detailed repair phases will appear when B's recovery loop emits them; helper-based state changes are already observed.
+The normal stack now has B's production recovery and four inventory-verified available workers. All six APIs and the actual browser operate with nonempty files. Registration remains JOINING until verification. Helper-based repair state transitions are observed; detailed transfer phases appear only if B emits those optional telemetry hooks.
 
-B must deliver recovery.py/status.py, CLI/reliability tests and the remaining Compose settings, accept the helper contract and run the joint failure/rejoin/corruption demonstrations. Member A's controlled live harness exercises real bytes/workers with **test-only** eligibility; it is not the production reconciler. The project is not fully release-complete until those shared gates pass.
+B's recovery delivery and shared contract are integrated, including an atomic registration fence and consistent timestamp eligibility. The joint five-container check passed admission, two physical copies, failure/repair/rejoin, forged-sidecar corruption, restart persistence and a 50MB roundtrip. Read ACCEPTANCE.md for commands and HANDOFF.md for current evidence. Optional B status/standalone CLI work is separate; A's loader tolerates absence.
 
 For a new Codex or Claude chat, read AGENTS.md then HANDOFF.md. Do not redo completed work, seed production data, or change B's functional files to disguise pending recovery.
 
-Optional frontend hosting and actual worker Start/Stop/Restart are documented in [DEMO.md](DEMO.md). The layout stays Vercel frontend, PC controller/workers and one HTTPS connection. Configure-Demo.ps1 creates an ignored owner key; when configured, enter it in Connection settings before using the APIs. Prefer http://127.0.0.1:8000/ for the local dashboard. This addition does not supply B's missing recovery module.
+Frontend hosting and actual worker Start/Stop/Restart are documented in [DEMO.md](DEMO.md). The live layout is Vercel frontend, PC controller/workers and one HTTPS connection. Configure-Demo.ps1 creates an ignored owner key; enter it in Connection settings before using the protected APIs. Prefer http://127.0.0.1:8000/ for the local dashboard. Both local and public browser workflows were verified against B's real recovery.

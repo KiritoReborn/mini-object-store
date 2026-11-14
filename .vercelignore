@@ -1,0 +1,8 @@
+# Deploy only the frontend subtree; the controller, data and owner key stay on the PC.
+/*
+!frontend
+/frontend/node_modules
+/frontend/dist
+/frontend/test-results
+/frontend/.vercel
+/frontend/.env*

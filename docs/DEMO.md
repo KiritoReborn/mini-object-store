@@ -59,13 +59,13 @@ This uses exact-origin CORS, not a wildcard. In the frontend, open Connection se
 
 - Files: upload >1 MB, inspect ordered chunks/two locations, edit metadata, download and compare SHA-256.
 - Cluster: choose a file/chunk, inspect placement, review operation summaries or switch to individual technical events.
-- Manage workers: confirm Stop on one actual container. Its Docker running state updates immediately; controller availability changes according to heartbeat/recovery policy. Its volume remains intact. Start it again to demonstrate inventory rejoin once Member B's recovery module is connected.
+- Manage workers: confirm Stop on one actual container. Its Docker running state updates immediately; controller availability changes according to heartbeat/recovery policy. Its volume remains intact. Start it again to demonstrate B's verified inventory rejoin. The standard docker stop worker2 / docker start worker2 commands exercise the same assignment flow.
 - Recovery panel: show only actual replica states and repair events from the teammate's implementation. Starting a container is not proof of completed recovery. No manual ALIVE or fake repair button exists.
 - Demo walkthrough: track presentation steps and export self-reported notes. Checkmarks are operator notes, not automated verification.
 
 ## Joining diagnosis and current boundary
 
-The four workers are connected: registration and heartbeats succeed. They remain JOINING because controller/recovery.py has not yet been delivered. The user explicitly reserved that implementation for Member B. The temporary investigation implementation was removed before publication and is not part of this branch. Existing start_reconciler/stop_reconciler hooks and all database/helper contracts remain ready for B. Until inventory verification admits two workers, nonempty uploads remain unavailable. Neither online hosting nor container Start fixes that missing dependency.
+B delivered controller/recovery.py and its tests. The combined normal stack now has four verified ALIVE workers; nonempty file operations and actual repair/rejoin passed the joint live gate. JOINING remains the correct temporary startup state while inventory is verified. If it persists, inspect recovery/worker logs, heartbeat freshness and inventory errors rather than manually granting ALIVE. The old investigation implementation is not used; current recovery is B's delivered module with reviewed shared-boundary corrections. See HANDOFF.md for live URLs and ACCEPTANCE.md for repeatable evidence.
 
 ## Research and selected features
 

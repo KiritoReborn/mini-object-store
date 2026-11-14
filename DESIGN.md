@@ -86,16 +86,18 @@ Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type 
 - Inputs use fine neutral strokes, a visible green focus treatment and labeled errors. Native file chooser and drag/drop coexist. Upload progress distinguishes sending from replica confirmation and final storage success.
 - Native dialogs trap focus. Object details use semantic tabs with roving focus, arrow/Home/End support and an independently scrolling body. Modal feedback stays inside the modal so it is visible and announced. Delete confirmation names the file and visibly disables closure while the operation is in flight.
 - Lucide outline icons are the single icon vocabulary. Native text labels carry meaning; icons are decoration or have an action name.
-- Objects are a real table with search, type filtering, sorting and pagination. Cluster state is a read-only view of controller observations, not a capacity gauge or Docker control surface.
+- Objects are a real table with scoped search, type filtering, sorting, page selection and pagination. Cluster observations remain separate from optional confirmed container lifecycle controls.
 
 ## Do's and Don'ts
 
 - Do preserve real-data and stale/unknown distinctions. Do label replication as a target when it is policy rather than an observed result.
 - Do keep operational tasks visible and errors recoverable. Do test empty, loading, error, queued, stored and unavailable states.
-- Do preserve the same-origin controller deployment and B-owned recovery boundary.
+- Do preserve the direct controller API connection and B-owned recovery boundary; local same-origin and remote HTTPS configurations share the same file operations.
 - Don't ship QA fixture data, mock network handlers, design briefs or direction metadata in the production UI.
 - Don't add speculative analytics, cloud-provider claims, unsupported capacity percentages or decorative charts.
 
 ## Demo controls and quiet activity
 
 Worker management uses the same compact structural rows, native dialogs and explicit disabled/error states. Container running state and controller availability have separate text labels. Stop/restart require a focused confirmation; volumes are not deleted. The activity panel starts with grouped successful operations and individually visible failures; the technical filter retains original event detail. Connection settings hide the owner key and explain the direct backend origin. The walkthrough is a collapsible checklist with clearly self-reported progress, keeping the topology primary.
+
+File search keeps its full row on narrow screens; scope and type filters share the next row. Listing exports are small secondary actions and explicitly include custom metadata. Selection changes are visible; Select this page never selects unloaded rows, and filter changes clear selection. Confirmed bulk removal lists names and per-file outcomes, stopping after uncertainty. Connection diagnostics sit behind a details disclosure, default to failures and describe measured browser time without implying worker latency or throughput.

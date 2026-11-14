@@ -1,64 +1,50 @@
-# Current controller/frontend handoff
+# Current combined project handoff
 
-Read this first in Codex, Claude or a new chat. Latest user instructions override the earlier planning history.
+Read this first in Codex, Claude or a new chat. Latest user instructions override earlier planning history. Current integration is being prepared on feature/controller; use git log/status and the integration PR for the final merge SHA.
 
-## Current scope and ownership
+## Delivered scope and ownership
 
-- User is Member A. Build frontend/controller and a simple demo. **Do not implement or modify worker code or recovery**; Member B is implementing those.
-- Deployment choice: static frontend on Vercel; controller plus four Docker workers on the PC; one ngrok HTTPS address connects the browser directly to the backend. No nginx gateway, cloud database, VM or second application server. See DEMO.md.
-- An interim recovery experiment was used while investigating endless JOINING, then removed when the user explicitly reserved recovery for B. controller/recovery.py and its tests are absent. No interim recovery implementation is committed or published. Do not re-add it or manually promote workers.
-- Source branch: feature/controller. Synchronized with origin/master at be6d75b, then committed this expansion as **3ae2b93** and pushed it to origin/feature/controller. Post-push comparison showed 0 ahead / 0 behind and a clean working tree. Later documentation-only commits may follow. No force push or new shared-master merge was performed.
+Member A owns controller/API/database/frontend; Member B delivered worker storage and production recovery in feature/workers at 2924a6db81c5635462d162c4f683889ad1584231 (c3821e1 code, 2924a6d handoff). That branch was combined locally with current A work before testing. No open worker PR existed when inspected, so the verified combined branch will be merged through an integration PR. Preserve B authorship and worker source. Optional status.py/standalone B CLI remain absent; main.py includes status.router only when that module actually exists. Existing synchronous-start/awaitable-stop hookup required no production change.
 
-## What is implemented now
+Recovery is installed and working; the old missing-reconciler/JOINING blocker is resolved. No manual ALIVE shortcut is installed. New/restarted workers remain JOINING until B verifies their inventory and DB-authoritative bytes.
 
-Original A object lifecycle, verified chunk/object downloads, two-copy upload commit, metadata/list/delete, persistence and shared contracts remain intact. The React dashboard is committed as source and generated controller/static assets; normal local use needs no Node server. Earlier evidence/review reports are under docs/reviews.
+Integration corrections:
 
-New local worker administration:
+- Explicit opt-in tests/conftest.py no_recovery_module fixture isolates A unit apps by simulating the optional module's absence. B recovery tests and lifecycle-hook tests retain their real/explicit hooks. The snapshot test calls overview without an application/background tasks.
+- Same-origin registration during inventory previously could inherit old eligibility. Additive worker_registrations tokens now rotate transactionally on registration, remain stable across heartbeats, and are checked atomically at admission. Existing worker/helper dictionaries/signatures remain intact; legacy tokens are backfilled once. Read contracts/db-helpers.md before changing this boundary.
+- Recovery rejects naive timestamps consistently with placement. A real-SQLite regression reproduces restart during inventory, fresh readmission/repair and normal-heartbeat liveness.
+- Compose now forwards shared chunk size and timing configuration; replication remains fixed at two. Default chunk size is 1000000 bytes, heartbeat 5s, dead threshold 15s, reconcile interval 5s. B's operation-specific recovery HTTP limits remain 5s/10s.
 
-- GET /api/v1/workers adds labels/notes, actual availability, all-replica counts, placement_enabled and can_forget. Existing B helper dictionaries/signatures remain unchanged.
-- Connect validates only matching local-Docker worker1..worker16 origins and verifies a bounded health/identity response. It connects an already running service, never creates a container or grants ALIVE.
-- PATCH edits name/notes or pauses A's next upload selection. Reads/in-flight writes/recovery state are separate.
-- Forget is atomic and allowed only for stale/absent-heartbeat nodes with zero replica records of any state. It does not delete containers/disks.
+## Runtime and deployment
 
-New demo controls in controller/demo.py:
+Architecture: browser loads static frontend from Vercel and calls the PC controller directly through ngrok HTTPS; controller talks to four local Docker workers. No Vercel Docker backend, upload proxy, extra application server or cloud database.
 
-- Opt-in GET /api/v1/demo/workers and POST /api/v1/demo/workers/{worker}/{start|stop|restart} use Docker's local socket.
-- Exact worker1..worker4 allowlist, expected Compose-project/service/name checks, owner key plus admin header, serial actions and frontend confirmation. No shell, exec, arbitrary container, create/delete, volume deletion or Docker TCP port.
-- compose.controls.yaml is an optional overlay. It mounts Docker's privileged socket; this remains powerful access and belongs only on the trusted owner demo PC. Default Compose omits the socket.
-- Actual container state is displayed separately from controller ALIVE/JOINING. Starting a container does not complete B's reconciliation.
+- Public frontend: https://frontend-nine-iota-19.vercel.app/ . Current promoted candidate dpl_HPE3VgKWoUCwFCwcjcpLZsa1QRo7, source frontend asset index-DtlTObPE.js. It includes metadata/ID search, exports, bulk actions, connection testing and request diagnostics.
+- Current backend: https://d55b-119-161-98-68.ngrok-free.app → http://127.0.0.1:8000. Ngrok runs hidden with request inspection disabled. Its PID/logs are in ignored frontend/test-results/connection; no token was copied into the repo. PC/Docker/agent must stay running. Verify the actual endpoint after restart; a changed URL needs a Vercel variable update/redeploy or tab-local Connection settings override.
+- Vercel CLI65.16.0 is signed in as kiritoreborn; project frontend, ID prj_vXMKpATbbwTAdk2AXw3UqpYz9aBb, scope raghus-projects-d1fa7fd7, root frontend, framework Vite/output dist. Production VITE_API_BASE_URL is the public backend URL only. Root .vercel/project.json and .env.local are private/ignored. Never print or commit account credentials.
+- Deployment upload whitelist includes only frontend source and excludes env files, node_modules, dist, captures and all backend/data files. The verified staged deployment had 51 frontend source files and zero unexpected source categories. Use documented /* + !frontend patterns; trailing-slash directory negation previously selected zero files. The staging automation bypass created by vercel curl was revoked afterward; other protection settings were preserved.
+- PC controller binds loopback, keeps owner-key API authentication and exact CORS for the frontend URL. Public internal worker routes return404; forged internal Host requests were rejected by ngrok with421 while normal TLS validation remained enabled. No host rewrite is configured.
+- Owner key remains in ignored root .env. Enter it in frontend Connection settings; it stays in page memory and clears on reload. It is absent from bundles, Vercel variables, diagnostics exports and browser storage. Do not request/paste it in chat.
+- Current PC state verified: recovery_available=true, 4 registered/4 available, 2 existing objects, zero under-replicated chunks and zero corrupt replicas. Four worker containers/volumes preserved. Before upgrading only the controller, all five volumes were backed up under ignored data/backups/pre-recovery-20261114-185439.
 
-Frontend changes:
+## Frontend/API behavior
 
-- Operation summary is the activity default: group similar successful chunk events by file/direction/minute, omit started/ordinary healthy bookkeeping, retain failures. Technical events remain available via the filter. Bounded history/replay/error/gap/restart truth stays intact.
-- Backend Connection settings support the direct remote HTTPS address and an in-memory owner key; no key enters storage, exports, Vercel build variables or the bundle.
-- Guided demo checklist and self-reported note export; no checkmark claims automatic test/recovery success.
-- Worker labels/notes/pause/connect/forget plus confirmed actual start/stop/restart and separate container-state display.
-- frontend/vercel.json + VERCEL-aware build output dist. Local builds still regenerate controller/static. VITE_API_BASE_URL is public URL only. Exact-origin CORS and owner-key API authentication live in the controller.
+All six REST APIs work independently of the UI. Upload uses spooled multipart and chunk-sized reads; READY requires two acknowledged eligible locations per chunk. Download verifies complete object/chunk bytes before binary success. JSON errors, metadata merge restrictions, object locks, cancellation cleanup and original worker contracts remain intact.
 
-## Current runtime and credentials
+UI provides file lifecycle/metadata/chunks, real topology/placement, bounded activity/replay, quiet summaries, diagnostics and confirmed worker controls. Docker controls are optional owner-demo conveniences with privileged socket access; start/stop/restart only for fixed project workers, no arbitrary exec/delete/volume removal. Standard assignment commands docker stop worker2 / docker start worker2 still work. Placement pause affects subsequent A uploads, not B recovery policy.
 
-- Normal local stack is running on http://127.0.0.1:8000/ with demo controls enabled. Four worker containers are running; worker4 was stopped and restored through both API and actual browser UI, preserving volumes.
-- The controller binds only loopback. Internal routes are rejected for public hostnames. No worker ports or Docker TCP endpoint are published.
-- Configure-Demo.ps1 generated a private owner key in ignored root .env. Never print/commit it. Open it privately and enter the value in frontend Connection settings; reload clears the frontend key. Start-Artaud.ps1 -DemoControls preserves it and the data volumes.
-- All four workers register/heartbeat, but recovery_available=false and they remain JOINING. Root cause is absent B recovery, not broken Docker connectivity. Nonempty uploads require B's verified admission. The temporary experiment's runtime was replaced with this source-aligned controller.
-- Existing user files/volumes were preserved. Only specifically identified browser QA objects were cleaned; do not delete unknown runtime files.
-- No public tunnel is running. ngrok browser sign-in was confirmed earlier, but the local agent token/config is absent. Its assigned domain was observed as tactile-chant-freely.ngrok-free.dev. Do not claim it is active.
-- Vercel integration was suggested but latest confirmed state is not installed/connected. No frontend has been published to Vercel, no DNS/domain changes made, and no account token saved to the repo. Complete publishing after the user connects Vercel and configures their local ngrok agent. See DEMO.md for the minimal steps.
+Literal name/ID/custom-metadata search never downloads file bytes. CSV/JSON listing exports include metadata/capture time/snapshot status; CSV is formula-safe. Explicit page selection may accumulate with a visible note; changing filters clears it. Serial bulk deletion reports per-file known/unknown/unattempted outcomes and stops on uncertain/auth failures. Request diagnostics retain60 redacted browser observations, not a persistent audit log or worker latency metric. Recovery UI displays actual DB state transitions; detailed transfer phases appear only if B emits the documented optional telemetry hooks.
 
-## Verification
+## Verified evidence
 
-Frontend unit tests: 19 passed. TypeScript/local build and Vercel dist build passed. Chromium suite: 25 passed, including accessibility/mobile, exact remote API connection/key non-persistence, operation-summary grouping and confirmed worker stop/start.
+- Full Linux suite: 299 passed, 1 skipped (explicit opt-in live Docker test), 1 existing Starlette/httpx warning. Baseline combined source had290 passed/2 failures; the reported third snapshot race was intermittent. Both admission/timestamp defects were reproduced by failing regressions before fixes. Independent standards/spec reviews and a follow-up admission review found the material issues resolved.
+- Frontend prior/current code: 28 unit and29 Chromium cases passed, including keyboard/accessibility/narrow screens. Local and Vercel builds passed. Current public build was checked for correct HTTPS origin/current features and absence of owner key.
+- tests/test_end_to_end.py --large --browser passed with five isolated real containers and B's actual reconciler:4 ALIVE, browser workflow, 5000001-byte six-chunk/two-physical-copy roundtrip across4 workers, Unicode filename/PATCH, actual worker2 stop/read fallback/DEAD repair/rejoin/surplus trim, corruption with forged sidecar and DB-hash repair, controller restart persistence, 50000000-byte streamed/hash-matching transfer with50 chunks, all six endpoints and physical delete cleanup. All labelled QA resources removed. The first restart check exposed Docker changing its random host port; the harness now refreshes the mapping and the complete rerun passed.
+- Public Vercel→HTTPS→PC browser test passed with baked-in origin (no manual URL override), owner key,4 available recovered workers, real1000001-byte upload/metadata/chunks/hash-matching download/delete and worker controls. Only its uniquely named temporary object was removed; existing2 objects preserved.
+- scripts/demo.sh Linux shell syntax and Compose configuration validated. Historical tests/live_controller_check.py is pre-recovery A-only evidence and intentionally expects absent recovery; use the new joint harness for current acceptance.
 
-Final backend suite: **218 passed**, one existing Starlette/httpx deprecation warning, in a disposable Linux Docker container with the source mounted read-only and no network. Two new security cases cover wrong-project Docker protection and remote CORS preflight. An earlier full run hit one intermittent pre-existing concurrent-upload assertion (217 passed, 1 failed); isolated concurrent upload, the whole 26-case object API group, and two subsequent full 218-case runs passed. Response diagnostics were added; the intermittent failure's root cause has not been identified, so no fix to it is claimed.
+## Final publication / continuation
 
-Final frontend verification: 19 unit cases and 25 Chromium cases passed again; local and Vercel-mode TypeScript/Vite builds passed. An initial browser-run attempt could not start its local server under restricted execution and was stopped; the permitted rerun completed all cases. Author inspected the real desktop Cluster capture. See docs/reviews/2026-11-14-demo-review.md for scope and limits.
+Finish the committed clean-checkout verification, create/merge the integration PR into master after green, then sync/verify the exact remote merge. Record its SHA/link here. No force pushes. Keep worker source unchanged and preserve B ownership.
 
-Actual local checks: Docker control API reported four running containers; worker4 stop returned running=false and immediate start restored running=true. Real Chromium entered the private key via Connection settings and verified Stop/Start confirmations and displayed state. All four were left running. Startup script initially exposed a localhost/IPv6 health-check mismatch after loopback binding; explicit 127.0.0.1 and a PowerShell single-line-array fix now make startup finish successfully.
-
-## Remaining work and safe continuation
-
-1. Final tests/docs review and feature-branch publication are complete (3ae2b93). Worker source and recovery hooks remain unchanged. Review or merge through the team's normal GitHub workflow when ready.
-2. B implements controller/recovery.py start_reconciler/stop_reconciler and status.py router, plus CLI/reliability integration. Shared API/helper/lock contracts are in contracts/*.md. No heartbeat promotion shortcut.
-3. Connect Vercel, publish only frontend with VITE_API_BASE_URL, configure exact ARTAUD_ALLOWED_ORIGINS using Configure-Demo.ps1, start the local ngrok agent and verify the actual URLs. No Vercel upload proxy or extra gateway.
-4. Run the final joint stop/fallback/repair/rejoin/corruption demonstration using B's actual reconciler. Existing tests/live_controller_check.py remains explicitly controlled A-only evidence with test-only eligibility; it does not prove B's production recovery.
-5. Run source changes through npm run build to update committed controller/static. Keep test captures, node_modules, dist, .vercel and credentials out of Git.
+For local startup use scripts/Start-Artaud.ps1 (optional -DemoControls); no Node server is required. See README.md, docs/ACCEPTANCE.md, docs/DEMO.md and contracts/*.md for explanation and repeatable checks. Optional B CLI/status and deeper repair telemetry are separate coordination items, not missing core upload/admission/recovery behavior. Future features/backlog are in docs/research/2026-11-14-controller-frontend-features.md; avoid reimplementing B recovery or adding deployment infrastructure.

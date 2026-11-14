@@ -37,7 +37,7 @@ def events(journal, kind=None):
     return result if kind is None else [event for event in result if event["kind"] == kind]
 
 
-def test_activity_empty_stream_has_cursor_contract(tmp_path, monkeypatch):
+def test_activity_empty_stream_has_cursor_contract(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, main
 
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))

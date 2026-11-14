@@ -144,7 +144,7 @@ def test_cancelled_temp_acquisition_does_not_leave_a_late_file_or_descriptor(tmp
             objects.remove_download(objects.Path(filename))
 
 
-def test_cancellation_during_initial_insert_cannot_leave_an_active_upload(tmp_path, monkeypatch):
+def test_cancellation_during_initial_insert_cannot_leave_an_active_upload(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, database as db, main, objects
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
     monkeypatch.setattr(config, "DOWNLOAD_TEMP_DIR", tmp_path / "downloads")

@@ -41,6 +41,29 @@ def test_registration_is_joining_and_heartbeat_does_not_promote(db):
     assert db.get_workers()[0]["status"] == "JOINING"
 
 
+def test_registration_token_changes_only_on_registration_and_preserves_worker_shape(db):
+    db.register_worker("w1", "http://worker1:8001")
+    token = db.get_worker_registration("w1")
+    assert token and len(token) == 32
+    assert set(db.get_workers()[0]) == {"worker_id", "base_url", "status", "last_heartbeat", "chunk_count"}
+    db.touch_heartbeat("w1")
+    assert db.get_worker_registration("w1") == token
+    db.register_worker("w1", "http://worker1:8001")
+    assert db.get_worker_registration("w1") != token
+
+
+def test_registration_token_migration_preserves_existing_worker(db):
+    db.register_worker("w1", "http://worker1:8001")
+    before = db.get_workers()
+    with db.connection() as conn:
+        conn.execute("DELETE FROM worker_registrations")
+    db.init_db()
+    token = db.get_worker_registration("w1")
+    assert token and db.get_workers() == before
+    db.init_db()
+    assert db.get_worker_registration("w1") == token
+
+
 def test_known_chunks_protect_uploads_but_exclude_abandoned_objects(db):
     for state in ("UPLOADING", "READY", "FAILED", "DELETING"):
         make_object(db, state, state)

@@ -1,7 +1,12 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { request } from "./api";
+import { downloadFile, request, uploadFile } from "./api";
+import { clearRequestLog, getRequestLog } from "./diagnostics";
+import type { StoredObject } from "./types";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearRequestLog();
+});
 it("returns real JSON from a successful controller response", async () => {
   vi.stubGlobal(
     "fetch",
@@ -39,4 +44,51 @@ it("does not show a proxy HTML error as product content", async () => {
   await expect(request("/api/v1/objects")).rejects.toThrow(
     "The controller could not complete this request",
   );
+});
+it("retains malformed upload responses in failure diagnostics", async () => {
+  class InvalidXHR {
+    upload = {};
+    status = 201;
+    responseText = "<html>bad gateway</html>";
+    onload?: () => void;
+    onloadend?: () => void;
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.onload?.();
+      this.onloadend?.();
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", InvalidXHR);
+  await expect(
+    uploadFile(
+      new File([""], "private-file"),
+      {},
+      new AbortController().signal,
+      () => {},
+    ),
+  ).rejects.toThrow("Unexpected controller response");
+  expect(getRequestLog().at(-1)?.outcome).toBe("Invalid response");
+  expect(getRequestLog().at(-1)?.status).toBe(201);
+});
+it("shows a response-body interruption after HTTP 200 in failure diagnostics", async () => {
+  vi.stubGlobal("window", { dispatchEvent() {} });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("Connection lost during file bytes"));
+    },
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(body, { status: 200 })),
+  );
+  await expect(
+    downloadFile({
+      object_id: "private-id",
+      name: "private-name",
+    } as StoredObject),
+  ).rejects.toThrow("Connection lost");
+  expect(getRequestLog().at(-1)?.status).toBe(200);
+  expect(getRequestLog().at(-1)?.outcome).toBe("Response handling failed");
 });

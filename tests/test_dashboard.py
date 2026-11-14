@@ -1,6 +1,7 @@
 """Dashboard summaries describe authoritative metadata without probing workers."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def dashboard(tmp_path, monkeypatch):
+def dashboard(tmp_path, monkeypatch, no_recovery_module):
     from controller import config, database, main
 
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
@@ -151,8 +152,11 @@ def test_overview_does_not_mutate_or_contact_workers_and_reports_recovery(dashbo
     assert records() == before
 
 
-def test_overview_reads_one_snapshot_while_ready_object_changes(dashboard, monkeypatch):
-    client, db, _ = dashboard
+def test_overview_reads_one_snapshot_while_ready_object_changes(tmp_path, monkeypatch):
+    from controller import config, database as db
+    from controller.dashboard import overview
+    monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
+    db.init_db()  # Test the transaction directly, with no application background tasks.
     add_worker(db, "worker")
     add_object(db, "ready", "READY", [5])
     db.upsert_replica("ready_0", "worker", "HEALTHY")
@@ -175,9 +179,7 @@ def test_overview_reads_one_snapshot_while_ready_object_changes(dashboard, monke
             yield conn
 
     monkeypatch.setattr(db, "connection", concurrent_connection)
-    response = client.get("/api/v1/overview")
-    assert response.status_code == 200
-    result = response.json()
+    result = overview(SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(recovery_available=False))))
     assert result["object_count"] == 1
     assert result["logical_bytes"] == 5
     assert result["chunk_count"] == 1
