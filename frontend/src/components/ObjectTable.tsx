@@ -7,11 +7,15 @@ import {
   Download,
   Files,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { bytes, dateLabel, fileKind } from "../format";
 import type { StoredObject } from "../types";
 import { FileIcon } from "./FileIcon";
+import { matchesObject, saveCsv, type SearchScope } from "../object-tools";
+import { saveJson } from "../system";
+import { BulkDeleteDialog } from "./BulkDeleteDialog";
 
 export function ObjectTable({
   objects,
@@ -20,6 +24,7 @@ export function ObjectTable({
   onInspect,
   onDownload,
   searchRef,
+  onChanged,
 }: {
   objects: StoredObject[];
   loading: boolean;
@@ -27,9 +32,13 @@ export function ObjectTable({
   onInspect: (object: StoredObject) => void;
   onDownload: (object: StoredObject) => void;
   searchRef: RefObject<HTMLInputElement | null>;
+  onChanged: () => Promise<void>;
 }) {
   const [search, setSearch] = useState(""),
     [kind, setKind] = useState("All types");
+  const [scope, setScope] = useState<SearchScope>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batch, setBatch] = useState<StoredObject[] | null>(null);
   const [sort, setSort] = useState<"name" | "size" | "created_at">(
       "created_at",
     ),
@@ -40,7 +49,7 @@ export function ObjectTable({
       objects
         .filter(
           (o) =>
-            o.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
+            matchesObject(o, search, scope) &&
             (kind === "All types" || fileKind(o.content_type) === kind),
         )
         .sort(
@@ -49,12 +58,29 @@ export function ObjectTable({
               ? a.size - b.size
               : a[sort].localeCompare(b[sort])) * (ascending ? 1 : -1),
         ),
-    [objects, search, kind, sort, ascending],
+    [objects, search, scope, kind, sort, ascending],
   );
-  useEffect(() => setPage(0), [search, kind]);
+  useEffect(() => {
+    setPage(0);
+    setSelectedIds(new Set());
+  }, [search, kind, scope]);
   const pages = Math.max(1, Math.ceil(filtered.length / 10)),
     currentPage = Math.min(page, pages - 1),
     rows = filtered.slice(currentPage * 10, (currentPage + 1) * 10);
+  const selected = objects.filter((file) => selectedIds.has(file.object_id));
+  const unavailable = loading || !!error;
+  const pageSelected =
+    rows.length > 0 && rows.every((file) => selectedIds.has(file.object_id));
+  const exportJson = (files: StoredObject[]) =>
+    saveJson("artaud-file-listing.json", {
+      captured_at: new Date().toISOString(),
+      snapshot_status: error ? "stale" : "current",
+      query: search,
+      scope,
+      type_filter: kind,
+      count: files.length,
+      files,
+    });
   const toggleSort = (key: typeof sort) => {
     setAscending(sort === key ? !ascending : key === "name");
     setSort(key);
@@ -91,6 +117,16 @@ export function ObjectTable({
           )}
         </div>
         <select
+          aria-label="Search scope"
+          value={scope}
+          onChange={(event) => setScope(event.target.value as SearchScope)}
+        >
+          <option value="all">Name, ID & metadata</option>
+          <option value="name">Filename</option>
+          <option value="id">Object ID</option>
+          <option value="metadata">Custom metadata</option>
+        </select>
+        <select
           aria-label="Filter file type"
           value={kind}
           onChange={(event) => setKind(event.target.value)}
@@ -109,6 +145,74 @@ export function ObjectTable({
           ))}
         </select>
       </div>
+      <div className="listing-actions">
+        <span>
+          {selected.length
+            ? `${selected.length} selected`
+            : "Exports include custom metadata; file bytes stay in storage."}
+        </span>
+        {!!selected.length && (
+          <>
+            <button
+              className="button secondary"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </button>
+            <button
+              className="button secondary"
+              disabled={unavailable}
+              onClick={() => exportJson(selected)}
+            >
+              Export selected JSON
+            </button>
+            <button
+              className="button danger"
+              disabled={unavailable}
+              onClick={() => setBatch([...selected])}
+            >
+              <Trash2 size={14} />
+              Delete selected
+            </button>
+          </>
+        )}
+        <button
+          className="button secondary"
+          disabled={loading || !filtered.length}
+          onClick={() => saveCsv(filtered, !!error)}
+        >
+          Export filtered CSV
+        </button>
+        <button
+          className="button secondary"
+          disabled={loading || !filtered.length}
+          onClick={() => exportJson(filtered)}
+        >
+          Export filtered JSON
+        </button>
+      </div>
+      {selected.some(
+        (file) => !rows.some((row) => row.object_id === file.object_id),
+      ) && (
+        <p className="selection-note">
+          Includes files you selected on other pages. Changing search or filters
+          clears selection.
+        </p>
+      )}
+      {batch && (
+        <BulkDeleteDialog
+          files={batch}
+          stale={unavailable}
+          onClose={() => setBatch(null)}
+          onFinished={async (removed) => {
+            setSelectedIds(
+              (current) =>
+                new Set([...current].filter((id) => !removed.includes(id))),
+            );
+            await onChanged();
+          }}
+        />
+      )}
       {loading ? (
         <div
           className="table-skeleton"
@@ -142,7 +246,7 @@ export function ObjectTable({
         <div className="empty-state compact">
           <Search size={26} />
           <h3>No matching files</h3>
-          <p>Try another name or file type.</p>
+          <p>Try another name, object ID, metadata value or file type.</p>
           <button
             className="button secondary"
             onClick={() => {
@@ -169,6 +273,26 @@ export function ObjectTable({
                         : "none"
                     }
                   >
+                    {key === "name" && (
+                      <input
+                        type="checkbox"
+                        aria-label="Select this page"
+                        checked={pageSelected}
+                        disabled={unavailable}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setSelectedIds((current) => {
+                            const next = new Set(current);
+                            rows.forEach((file) =>
+                              checked
+                                ? next.add(file.object_id)
+                                : next.delete(file.object_id),
+                            );
+                            return next;
+                          });
+                        }}
+                      />
+                    )}
                     <button onClick={() => toggleSort(key)}>
                       {key === "name" ? "Name" : "Size"}
                       {sort === key ? (
@@ -211,6 +335,22 @@ export function ObjectTable({
                 <tr key={object.object_id}>
                   <td>
                     <div className="file-name-cell">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${object.name}`}
+                        checked={selectedIds.has(object.object_id)}
+                        disabled={unavailable}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setSelectedIds((current) => {
+                            const next = new Set(current);
+                            checked
+                              ? next.add(object.object_id)
+                              : next.delete(object.object_id);
+                            return next;
+                          });
+                        }}
+                      />
                       <FileIcon mime={object.content_type} />
                       <button
                         className="file-name"

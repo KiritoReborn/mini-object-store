@@ -423,6 +423,7 @@ export default function App() {
                   onInspect={setSelected}
                   onDownload={(object) => void onDownload(object)}
                   searchRef={searchRef}
+                  onChanged={load}
                 />
               )}
             </div>

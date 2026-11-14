@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { validateBackend } from "./connection";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { testBackendConnection, validateBackend } from "./connection";
+import { getRequestLog } from "./diagnostics";
+afterEach(() => vi.unstubAllGlobals());
 
 describe("public frontend backend connection", () => {
   it("accepts remote HTTPS origins and local development without a proxy", () => {
@@ -22,4 +24,15 @@ describe("public frontend backend connection", () => {
       expect(() => validateBackend(value)).toThrow();
     }
   });
+});
+
+it("explains a static frontend HTML response instead of treating it as a backend", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response("<!doctype html>", { status: 200 })),
+  );
+  await expect(
+    testBackendConnection("https://frontend.example", "private-key"),
+  ).rejects.toThrow("did not return a controller overview");
+  expect(getRequestLog().at(-1)?.outcome).toBe("Invalid response");
 });

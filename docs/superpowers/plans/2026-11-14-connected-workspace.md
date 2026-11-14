@@ -1,0 +1,13 @@
+# Connected workspace implementation plan
+
+Goal: connect the existing Vercel frontend directly to the PC HTTPS API and add useful Member A browsing/diagnostic features. User authorized implementation decisions and asks to preserve teammate ownership.
+
+Design: preserve React/Vite, FastAPI, existing APIs and visual language. Research is in docs/research/2026-11-14-controller-frontend-features.md. Prefer existing list/DELETE APIs and in-memory browser diagnostics over new services or a new storage protocol. Workers/recovery/status and their frozen helper contracts remain untouched.
+
+- [ ] Verify live Vercel assets/API configuration and PC liveness; configure exact frontend CORS origin. Connect a user-configured ngrok agent, set only the public API URL in Vercel, then verify real browser requests. Preserve an explicit credential blocker if required local/account authentication is unavailable.
+- [x] Add scoped name/ID/metadata search using the existing READY list and safe CSV/JSON exports of the filtered snapshot. No file bytes fetched; formula-safe CSV; exports labeled stale if applicable. Test typed metadata/nested values, literal text, formula cells and filtered browser exports.
+- [x] Add page-scoped selection, visible count and confirmed serial bulk deletion through existing APIs. Show removed/already absent/rejected/unknown outcomes per file; stop after unknown transport/server outcome and leave later files unattempted. Refresh afterward. Block stale/loading actions, support intentional retry, preserve single-object flows. Test mixed outcomes and explicit confirmation.
+- [x] Add bounded request diagnostics to connection settings: method, endpoint category, start time, duration/status/outcome only; never keys, headers, bodies, names, object IDs or metadata. Test connection with owner key without saving it; authentication/CORS failures remain explicit. Clear on backend change, provide redacted export, label browser duration honestly. Test bounded/redacted history, failure and key non-persistence.
+- [ ] Run frontend units/TypeScript/local+Vercel builds/browser accessibility and failure checks; full backend Linux tests if controller changes. Inspect desktop/mobile rendering. Update handoff/contracts/design as applicable, commit and push the authorized feature branch. Publish to the verified existing Vercel project only if account access is available.
+
+Deployment remains browser → Vercel static files; browser → ngrok HTTPS → PC controller → four Docker workers. PC uptime matters. Starting Docker containers does not supply Member B's missing admission/recovery module.

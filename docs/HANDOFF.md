@@ -7,7 +7,7 @@ Read this first in Codex, Claude or a new chat. Latest user instructions overrid
 - User is Member A. Build frontend/controller and a simple demo. **Do not implement or modify worker code or recovery**; Member B is implementing those.
 - Deployment choice: static frontend on Vercel; controller plus four Docker workers on the PC; one ngrok HTTPS address connects the browser directly to the backend. No nginx gateway, cloud database, VM or second application server. See DEMO.md.
 - An interim recovery experiment was used while investigating endless JOINING, then removed when the user explicitly reserved recovery for B. controller/recovery.py and its tests are absent. No interim recovery implementation is committed or published. Do not re-add it or manually promote workers.
-- Source branch: feature/controller. Synchronized with origin/master at be6d75b, then committed this expansion as **3ae2b93** and pushed it to origin/feature/controller. Post-push comparison showed 0 ahead / 0 behind and a clean working tree. Later documentation-only commits may follow. No force push or new shared-master merge was performed.
+- Source branch: feature/controller. Earlier demo expansion 3ae2b93 and handoff 2f33556 were merged by the team in origin/master at **9b29954**. This checkout fast-forwarded to that merge before the connected-workspace expansion. Use git log/status for this expansion's publication commit. No force push or new shared-master merge was performed here.
 
 ## What is implemented now
 
@@ -35,6 +35,13 @@ Frontend changes:
 - Worker labels/notes/pause/connect/forget plus confirmed actual start/stop/restart and separate container-state display.
 - frontend/vercel.json + VERCEL-aware build output dist. Local builds still regenerate controller/static. VITE_API_BASE_URL is public URL only. Exact-origin CORS and owner-key API authentication live in the controller.
 
+Connected workspace expansion:
+
+- Scoped name/ID/custom-metadata search operates on READY list metadata only. Iterative key/scalar traversal preserves literal quotes, paths and nested values. CSV/JSON listing exports include metadata/capture time/snapshot status; CSV cells are quoted and formula-safe.
+- Select this page touches visible rows only. Explicit selection can accumulate across pages with a visible note, and clears when search/type/scope changes. Confirmed bulk deletion serially reuses existing DELETE, reports removed/already absent/rejected/unknown/unattempted results, stops on uncertain or auth outcomes, and refreshes listings. No new bulk backend or recovery behavior.
+- Connection settings can test a draft URL/key without saving them. Request diagnostics retain 60 redacted browser measurements, failure-first; include response/body failures even after 2xx headers. Clear/connection changes invalidate late old observations. No IDs/names/URLs/headers/bodies/metadata/keys enter this log/export. It is not a durable audit log or worker-latency metric.
+- Sources and feature/ownership assessment: docs/research/2026-11-14-controller-frontend-features.md. Current code/review evidence: docs/reviews/2026-11-14-connected-workspace-review.md.
+
 ## Current runtime and credentials
 
 - Normal local stack is running on http://127.0.0.1:8000/ with demo controls enabled. Four worker containers are running; worker4 was stopped and restored through both API and actual browser UI, preserving volumes.
@@ -42,23 +49,27 @@ Frontend changes:
 - Configure-Demo.ps1 generated a private owner key in ignored root .env. Never print/commit it. Open it privately and enter the value in frontend Connection settings; reload clears the frontend key. Start-Artaud.ps1 -DemoControls preserves it and the data volumes.
 - All four workers register/heartbeat, but recovery_available=false and they remain JOINING. Root cause is absent B recovery, not broken Docker connectivity. Nonempty uploads require B's verified admission. The temporary experiment's runtime was replaced with this source-aligned controller.
 - Existing user files/volumes were preserved. Only specifically identified browser QA objects were cleaned; do not delete unknown runtime files.
-- No public tunnel is running. ngrok browser sign-in was confirmed earlier, but the local agent token/config is absent. Its assigned domain was observed as tactile-chant-freely.ngrok-free.dev. Do not claim it is active.
-- Vercel integration was suggested but latest confirmed state is not installed/connected. No frontend has been published to Vercel, no DNS/domain changes made, and no account token saved to the repo. Complete publishing after the user connects Vercel and configures their local ngrok agent. See DEMO.md for the minimal steps.
+- **User deployed frontend:** https://frontend-nine-iota-19.vercel.app/ serves HTTP 200 and the earlier demo assets (index-BTn9gRMA.js). Requests to its own /api/v1/overview return 404: no backend URL is configured there yet. Do not claim the new connected-workspace build is deployed until its actual assets/requests are checked.
+- The PC controller was rebuilt alone (worker containers/volumes left intact). Its authenticated overview returned 200 with Access-Control-Allow-Origin exactly https://frontend-nine-iota-19.vercel.app. Configure-Demo.ps1 stored this exact origin in the ignored root .env. Local smoke passed with two uniquely named empty QA objects, both removed; existing objects were preserved.
+- **ngrok installed:** official Microsoft Store agent 3.39.11-msix-stable via WinGet, installation completed. No account config/authtoken is present in standard local paths or environment, and no public tunnel is running. The user must configure their private agent token locally; never request it in chat or retrieve/print it from the dashboard. Assigned domain was previously observed as tactile-chant-freely.ngrok-free.dev; verify the actual live endpoint before using it.
+- **Vercel plugin is installed/enabled**, confirmed through Plugin Management. No Vercel account-management MCP tools are exposed in this chat. Official CLI 65.16.0 is available through npx, but whoami reported logged out. A device login was opened and its first code expired before approval; regenerate on continuation when the user is ready. Do not confuse plugin installation/browser login with CLI authorization. No Vercel setting/redeployment or DNS change has been made by this expansion.
 
 ## Verification
 
-Frontend unit tests: 19 passed. TypeScript/local build and Vercel dist build passed. Chromium suite: 25 passed, including accessibility/mobile, exact remote API connection/key non-persistence, operation-summary grouping and confirmed worker stop/start.
+Connected-workspace final verification: **28 frontend unit cases and 29 Chromium cases passed**; TypeScript/local production and Vercel dist builds passed. Author inspected desktop/320px fixture captures and corrected the initially cramped mobile search. Independent source review identified literal metadata escaping and hidden post-header request failures; failing regressions reproduced both, fixes passed and reviewer confirmed resolution with no new material issue.
+
+Actual local controller smoke: frontend/e2e/live-file-tools.mjs tested owner-key connection probe, quoted literal metadata search, CSV export and confirmed two-file deletion against real APIs. It creates/removes two uniquely named empty QA objects only; this does not prove nonempty upload/admission or recovery. No new Python behavior changed in this expansion; the full backend result below is the prior verified checkpoint.
 
 Final backend suite: **218 passed**, one existing Starlette/httpx deprecation warning, in a disposable Linux Docker container with the source mounted read-only and no network. Two new security cases cover wrong-project Docker protection and remote CORS preflight. An earlier full run hit one intermittent pre-existing concurrent-upload assertion (217 passed, 1 failed); isolated concurrent upload, the whole 26-case object API group, and two subsequent full 218-case runs passed. Response diagnostics were added; the intermittent failure's root cause has not been identified, so no fix to it is claimed.
 
-Final frontend verification: 19 unit cases and 25 Chromium cases passed again; local and Vercel-mode TypeScript/Vite builds passed. An initial browser-run attempt could not start its local server under restricted execution and was stopped; the permitted rerun completed all cases. Author inspected the real desktop Cluster capture. See docs/reviews/2026-11-14-demo-review.md for scope and limits.
+Prior demo verification: 19 unit cases and 25 Chromium cases passed. See docs/reviews/2026-11-14-demo-review.md for that earlier scope and limits.
 
 Actual local checks: Docker control API reported four running containers; worker4 stop returned running=false and immediate start restored running=true. Real Chromium entered the private key via Connection settings and verified Stop/Start confirmations and displayed state. All four were left running. Startup script initially exposed a localhost/IPv6 health-check mismatch after loopback binding; explicit 127.0.0.1 and a PowerShell single-line-array fix now make startup finish successfully.
 
 ## Remaining work and safe continuation
 
-1. Final tests/docs review and feature-branch publication are complete (3ae2b93). Worker source and recovery hooks remain unchanged. Review or merge through the team's normal GitHub workflow when ready.
+1. Publish the verified connected-workspace expansion on feature/controller and confirm remote hash. Earlier demo publication is complete. Worker source/recovery/status and frozen helper contracts remain unchanged.
 2. B implements controller/recovery.py start_reconciler/stop_reconciler and status.py router, plus CLI/reliability integration. Shared API/helper/lock contracts are in contracts/*.md. No heartbeat promotion shortcut.
-3. Connect Vercel, publish only frontend with VITE_API_BASE_URL, configure exact ARTAUD_ALLOWED_ORIGINS using Configure-Demo.ps1, start the local ngrok agent and verify the actual URLs. No Vercel upload proxy or extra gateway.
+3. User configures the private ngrok agent token locally (agent installation is done) and approves a fresh Vercel CLI device login. Start ngrok forwarding http://127.0.0.1:8000, verify public liveness/internal-route denial/auth/exact CORS, then set VITE_API_BASE_URL and redeploy only the existing frontend project after verifying team/project/environment. Never put the owner key in Vercel variables. Exact frontend CORS is already applied on the PC. Verify the actual deployed browser flows before claiming the connection complete.
 4. Run the final joint stop/fallback/repair/rejoin/corruption demonstration using B's actual reconciler. Existing tests/live_controller_check.py remains explicitly controlled A-only evidence with test-only eligibility; it does not prove B's production recovery.
 5. Run source changes through npm run build to update committed controller/static. Keep test captures, node_modules, dist, .vercel and credentials out of Git.

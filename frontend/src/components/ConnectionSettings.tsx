@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { Link2, ShieldCheck } from "lucide-react";
-import { backendOrigin, configureConnection } from "../connection";
+import {
+  backendOrigin,
+  configureConnection,
+  testBackendConnection,
+} from "../connection";
 import { errorMessage } from "../format";
 import { Dialog } from "./Dialog";
+import { RequestDiagnostics } from "./RequestDiagnostics";
 
 export function ConnectionSettings({ onClose }: { onClose: () => void }) {
   const [origin, setOrigin] = useState(backendOrigin());
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState("");
   return (
     <Dialog
       title="Backend connection"
@@ -24,6 +31,7 @@ export function ConnectionSettings({ onClose }: { onClose: () => void }) {
       <input
         id="backend-origin"
         type="url"
+        disabled={testing}
         value={origin}
         onChange={(event) => setOrigin(event.target.value)}
         placeholder="https://your-address.ngrok-free.dev"
@@ -36,6 +44,7 @@ export function ConnectionSettings({ onClose }: { onClose: () => void }) {
       <input
         id="backend-key"
         type="password"
+        disabled={testing}
         autoComplete="off"
         value={key}
         onChange={(event) => setKey(event.target.value)}
@@ -51,12 +60,36 @@ export function ConnectionSettings({ onClose }: { onClose: () => void }) {
           {error}
         </p>
       )}
+      {testResult && (
+        <p role="status" className="worker-origin">
+          {testResult}
+        </p>
+      )}
       <div className="dialog-actions">
         <button className="button secondary" onClick={onClose}>
           Cancel
         </button>
         <button
+          className="button secondary"
+          disabled={testing}
+          onClick={async () => {
+            setTesting(true);
+            setError("");
+            setTestResult("");
+            try {
+              setTestResult(await testBackendConnection(origin, key));
+            } catch (error) {
+              setError(errorMessage(error));
+            } finally {
+              setTesting(false);
+            }
+          }}
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </button>
+        <button
           className="button primary"
+          disabled={testing}
           onClick={() => {
             try {
               configureConnection(origin, key);
@@ -69,6 +102,7 @@ export function ConnectionSettings({ onClose }: { onClose: () => void }) {
           Connect backend
         </button>
       </div>
+      <RequestDiagnostics />
     </Dialog>
   );
 }

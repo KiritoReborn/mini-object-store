@@ -3,6 +3,158 @@ import AxeBuilder from "@axe-core/playwright";
 import { readFile } from "node:fs/promises";
 import type { ActivityEvent } from "../src/types";
 
+test("connection test and diagnostic export explain HTTP errors without exporting credentials", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Backend connection", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Backend connection" });
+  await dialog
+    .getByLabel("Owner access key")
+    .fill("private-owner-key-not-for-export");
+  await dialog
+    .getByRole("button", { name: "Test connection", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toContainText("API access accepted");
+  await dialog.getByText("Recent request diagnostics", { exact: true }).click();
+  await dialog.getByLabel("Show successful requests").check();
+  await expect(dialog.getByText(/GET · Overview/).first()).toBeVisible();
+  const download = page.waitForEvent("download");
+  await dialog
+    .getByRole("button", { name: "Export request diagnostics" })
+    .click();
+  const body = await readFile((await (await download).path())!, "utf8");
+  expect(body).toContain('"duration_ms"');
+  expect(body).not.toMatch(
+    /private-owner-key|X-Artaud-Key|44665544000|Cloud computing/,
+  );
+  await dialog
+    .getByRole("button", { name: "Clear history", exact: true })
+    .click();
+  await expect(
+    dialog.getByText("No requests recorded yet.", { exact: true }),
+  ).toBeVisible();
+  await page.route("**/api/v1/overview", (route) =>
+    route.fulfill({ status: 401, json: { message: "Key required" } }),
+  );
+  await dialog
+    .getByRole("button", { name: "Test connection", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "correct owner access key",
+  );
+});
+
+test("metadata search exports only the filtered listing and scoped page selection", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.getByLabel("Search scope").selectOption("metadata");
+  await page
+    .getByRole("searchbox", { name: "Search files" })
+    .fill("Cloud computing");
+  await expect(page.locator(".object-table tbody tr")).toHaveCount(8);
+  await page.getByLabel("Search scope").selectOption("id");
+  await page
+    .getByRole("searchbox", { name: "Search files" })
+    .fill("446655440001");
+  await expect(page.locator(".object-table tbody tr")).toHaveCount(1);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export filtered CSV" }).click();
+  const artifact = await download;
+  const csv = await readFile((await artifact.path())!, "utf8");
+  expect(csv).toContain("mountains.jpg");
+  expect(csv).not.toContain("architecture-notes.pdf");
+  await page.getByRole("checkbox", { name: "Select this page" }).check();
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
+  await page
+    .getByRole("searchbox", { name: "Search files" })
+    .fill("446655440002");
+  await expect(page.getByText("1 selected", { exact: true })).not.toBeVisible();
+});
+
+test("bulk deletion confirms names and retains rejected files with per-file outcomes", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route(
+    "**/api/v1/objects/550e8400-e29b-41d4-a716-446655440001",
+    async (route) => {
+      if (route.request().method() === "DELETE")
+        return route.fulfill({
+          status: 409,
+          json: { message: "Protected for this test" },
+        });
+      return route.fallback();
+    },
+  );
+  await page.goto("/");
+  await page
+    .getByRole("checkbox", {
+      name: "Select architecture-notes.pdf",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("checkbox", { name: "Select mountains.jpg", exact: true })
+    .check();
+  await page.getByRole("button", { name: "Delete selected" }).click();
+  const dialog = page.getByRole("alertdialog", {
+    name: "Delete selected files",
+  });
+  await expect(
+    dialog.getByText("architecture-notes.pdf", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Delete 2 files", exact: true }),
+  ).toBeDisabled();
+  await dialog.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await dialog
+    .getByRole("button", { name: "Delete 2 files", exact: true })
+    .click();
+  await expect(dialog.getByText("Removed", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Rejected", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "architecture-notes.pdf", exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "mountains.jpg", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
+});
+
+test("bulk deletion stops after a lost response and leaves later files unattempted", async ({
+  page,
+}) => {
+  await fixture(page);
+  const attempts: string[] = [];
+  await page.route("**/api/v1/objects/*", async (route) => {
+    if (route.request().method() !== "DELETE") return route.fallback();
+    attempts.push(route.request().url());
+    return route.abort("failed");
+  });
+  await page.goto("/");
+  await page.getByRole("checkbox", { name: "Select this page" }).check();
+  await page.getByRole("button", { name: "Delete selected" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await dialog
+    .getByRole("button", { name: "Delete 8 files", exact: true })
+    .click();
+  await expect(
+    dialog.getByText("Outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByText("Not attempted", { exact: true })).toHaveCount(
+    7,
+  );
+  expect(attempts).toHaveLength(1);
+});
+
 const names = [
   "architecture-notes.pdf",
   "mountains.jpg",
@@ -340,6 +492,11 @@ test("desktop and mobile fit, cluster navigation and keyboard search", async ({
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    expect(
+      (await page
+        .getByRole("searchbox", { name: "Search files" })
+        .boundingBox())!.width,
+    ).toBeGreaterThanOrEqual(180);
   }
   await page.screenshot({
     path: "test-results/workspace-mobile.png",
