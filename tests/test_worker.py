@@ -117,10 +117,12 @@ def test_list_chunks(client):
     assert r_wrong.json()["error"] == "WRONG_WORKER"
 
 
-def test_delete_and_delete_twice(client):
+@pytest.mark.parametrize("index", ["0", "1", "10"])
+def test_delete_and_delete_twice(client, index):
     data = b"delete test data"
     sha = compute_sha256(data)
-    url = f"/internal/chunks/{VALID_CHUNK_ID}"
+    chunk_id = VALID_CHUNK_ID.rsplit("_", 1)[0] + "_" + index
+    url = f"/internal/chunks/{chunk_id}"
 
     assert client.put(url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
     before_delete = client.get(url)
@@ -137,7 +139,8 @@ def test_delete_and_delete_twice(client):
 
     # Verify chunk is gone
     assert client.get(url).status_code == 404
-    assert not storage.sha_path(VALID_CHUNK_ID).exists()
+    assert not storage.chunk_path(chunk_id).exists()
+    assert not storage.sha_path(chunk_id).exists()
 
 
 def test_bad_puts(client):
@@ -217,6 +220,7 @@ def test_invalid_chunk_ids_and_path_traversal(client):
         "123",
         "550e8400-e29b-41d4-a716-446655440000",  # missing _index
         "550e8400-e29b-41d4-a716-44665544000z_0",  # invalid hex
+        VALID_CHUNK_ID + "0",  # non-canonical _00 index
     ]
     for cid in invalid_ids:
         # GET
@@ -265,6 +269,87 @@ def test_exact_chunk_size_is_accepted(client):
     response = client.put(url, headers={"X-Chunk-SHA256": compute_sha256(data)}, content=data)
     assert response.status_code == 201
     assert client.get(url).content == data
+
+
+def test_oversized_stored_chunk_is_not_read_and_can_be_repaired(client, monkeypatch):
+    chunk_file = storage.chunk_path(VALID_CHUNK_ID)
+    sidecar = storage.sha_path(VALID_CHUNK_ID)
+    oversized = b"x" * (config.CHUNK_SIZE + 1)
+    chunk_file.write_bytes(oversized)
+    sidecar.write_text(compute_sha256(oversized), encoding="ascii")
+    real_read = Path.read_bytes
+
+    def bounded_read(path):
+        if path == chunk_file:
+            assert path.stat().st_size <= config.CHUNK_SIZE, "oversized chunk was read"
+        return real_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", bounded_read)
+    url = f"/internal/chunks/{VALID_CHUNK_ID}"
+    response = client.get(url)
+    assert response.status_code == 409
+    assert response.json()["error"] == "CHUNK_CORRUPTED"
+
+    data = b"repaired chunk"
+    sha = compute_sha256(data)
+    assert client.put(url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.content == data
+    assert response.headers["X-Chunk-SHA256"] == sha
+
+    chunk_file.write_bytes(oversized)
+    sidecar.write_text(compute_sha256(oversized), encoding="ascii")
+    assert client.delete(url).status_code == 204
+    assert not chunk_file.exists()
+    assert not sidecar.exists()
+
+
+@pytest.mark.parametrize("sidecar_size", [128, 129, 4096])
+def test_sidecar_read_limit_and_repair(client, monkeypatch, sidecar_size):
+    data = b"sidecar limit"
+    sha = compute_sha256(data)
+    url = f"/internal/chunks/{VALID_CHUNK_ID}"
+    assert client.put(url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
+    sidecar = storage.sha_path(VALID_CHUNK_ID)
+    padded_sha = sha.encode("ascii") + b" " * (sidecar_size - 64)
+    sidecar.write_bytes(padded_sha)
+    real_open = Path.open
+
+    def bounded_open(path, *args, **kwargs):
+        stream = real_open(path, *args, **kwargs)
+        if path == sidecar:
+            real_read = stream.read
+
+            def bounded_read(size=-1):
+                assert 0 <= size <= 128, "sidecar read exceeded its hard cap"
+                return real_read(size)
+
+            stream.read = bounded_read
+        return stream
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", bounded_open)
+        response = client.get(url)
+        inventory = storage.inventory()
+    if sidecar_size == 128:
+        assert response.status_code == 200
+        assert response.content == data
+        assert inventory == [{"chunk_id": VALID_CHUNK_ID, "size": len(data), "sha256": sha}]
+    else:
+        assert response.status_code == 409
+        assert response.json()["error"] == "CHUNK_CORRUPTED"
+        assert inventory == [{"chunk_id": VALID_CHUNK_ID, "size": len(data), "sha256": None}]
+        assert client.put(url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.content == data
+        assert response.headers["X-Chunk-SHA256"] == sha
+
+        sidecar.write_bytes(padded_sha)
+        assert client.delete(url).status_code == 204
+        assert not storage.chunk_path(VALID_CHUNK_ID).exists()
+        assert not sidecar.exists()
 
 
 def test_oversized_stream_stops_consuming_before_end(monkeypatch):
@@ -394,6 +479,9 @@ def test_inventory_ignores_sidecars_tmp_and_directories():
     storage.put(VALID_CHUNK_ID, data, sha)
     (storage.ROOT / "orphan.tmp").write_bytes(b"junk")
     (storage.ROOT / VALID_CHUNK_ID.replace("_0", "_1")).mkdir()
+    legacy_id = VALID_CHUNK_ID + "0"
+    (storage.ROOT / legacy_id).write_bytes(data)
+    (storage.ROOT / (legacy_id + ".sha256")).write_text(sha, encoding="ascii")
     assert storage.inventory() == [{"chunk_id": VALID_CHUNK_ID, "size": len(data), "sha256": sha}]
 
 

@@ -9,9 +9,10 @@ from pathlib import Path
 from . import config
 
 CHUNK_ID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9]+"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(?:0|[1-9][0-9]*)"
 )
 HEX64_RE = re.compile(r"[0-9a-f]{64}")
+_SIDECAR_MAX_BYTES = 128
 ROOT = Path(config.STORAGE_PATH)
 log = logging.getLogger("worker")
 
@@ -78,7 +79,11 @@ def cleanup_tmp():
 
 def _read_sha(chunk_id):
     try:
-        stored = sha_path(chunk_id).read_text(encoding="ascii").strip()
+        path = sha_path(chunk_id)
+        if path.stat().st_size > _SIDECAR_MAX_BYTES:
+            return None
+        with path.open("rb") as f:
+            stored = f.read(_SIDECAR_MAX_BYTES).decode("ascii").strip()
     except (FileNotFoundError, UnicodeError):
         return None
     return stored if HEX64_RE.fullmatch(stored) else None
@@ -87,7 +92,10 @@ def _read_sha(chunk_id):
 def _check(chunk_id):
     """Caller holds the chunk lock; return (ok / missing / corrupt, data, sha)."""
     try:
-        data = chunk_path(chunk_id).read_bytes()
+        path = chunk_path(chunk_id)
+        if path.stat().st_size > config.CHUNK_SIZE:
+            return "corrupt", None, None
+        data = path.read_bytes()
     except FileNotFoundError:
         return "missing", None, None
     stored = _read_sha(chunk_id)
