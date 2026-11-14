@@ -100,7 +100,50 @@ try {
       path: resolve(artifacts, "workspace-desktop.png"),
       fullPage: true,
     });
+    await page.getByRole("button", { name: "Cluster", exact: true }).click();
+    await expect(page.locator(".topology-wires .wire-base")).toHaveCount(4);
+    await page.getByLabel("File to visualize").selectOption({ label: name });
+    await expect(page.getByRole("button", { name: /Chunk 1/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Chunk 2/ })).toBeVisible();
+    await expect(
+      page.locator(".placement-table").getByText("Healthy", { exact: true }),
+    ).toHaveCount(4);
+    await page.getByRole("button", { name: /Chunk 1/ }).click();
+    await expect(page.locator(".topology-worker.holds-copy")).toHaveCount(2);
+    await page.getByLabel("Activity type").selectOption("transfers");
+    await expect(
+      page
+        .locator(".activity-list")
+        .getByText(/^Copy acknowledged/)
+        .first(),
+    ).toBeVisible();
+    await expect(
+      page
+        .locator(".activity-list")
+        .getByText(/^Chunk verified/)
+        .first(),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: /^Replay transfer/ })
+      .first()
+      .click();
+    await expect(page.getByText(/Replay of observed event/)).toBeVisible();
+    await page.screenshot({
+      path: resolve(artifacts, "system-desktop.png"),
+      fullPage: true,
+    });
     await page.setViewportSize({ width: 390, height: 844 });
+    if (
+      !(await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ))
+    )
+      throw new Error("Real mobile system explorer overflows");
+    await page.screenshot({
+      path: resolve(artifacts, "system-mobile.png"),
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Files", exact: true }).click();
     if (
       !(await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -125,7 +168,7 @@ try {
     );
     await expect(page.getByText("File deleted", { exact: true })).toBeVisible();
     console.log(
-      "Real dashboard + four workers: browser upload, metadata PATCH, two-chunk inspection, checksum-matching download, delete and mobile layout passed",
+      "Real dashboard + four workers: upload, metadata, chunk placement/highlights, observed transfer activity/replay, checksum download, delete and mobile layout passed",
     );
   }
   if (errors.length) throw new Error(errors.join("\n"));

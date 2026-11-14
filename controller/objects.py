@@ -10,7 +10,7 @@ import logging
 import os
 import tempfile
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,7 +20,7 @@ from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
 
-from . import config, database as db
+from . import config, database as db, telemetry
 from .models import MetadataPatch, StoreError, parse_metadata, safe_content_type, safe_filename
 from .placement import InsufficientWorkers, choose_workers
 
@@ -130,18 +130,44 @@ async def cleanup_abandoned(http: httpx.AsyncClient) -> None:
             await discard_object(http, oid)
 
 
+@contextmanager
+def _transfer(chunk: dict, worker_id: str, direction: str):
+    fields = {"object_id": chunk["object_id"], "chunk_id": chunk["chunk_id"],
+              "worker_id": worker_id, "direction": direction, "size": chunk["size"],
+              "transfer_id": str(uuid4())}
+    telemetry.record_event("transfer_started", **fields)
+    completed = False
+    detail = "unverified response"
+
+    def verified():
+        nonlocal completed
+        completed = True
+        telemetry.record_event("transfer_completed", **fields)
+
+    try:
+        yield verified
+    except BaseException as exc:
+        detail = "cancelled" if isinstance(exc, asyncio.CancelledError) else "transfer failed"
+        raise
+    finally:
+        if not completed:
+            telemetry.record_event("transfer_failed", **fields, detail=detail)
+
+
 async def _put_copy(http: httpx.AsyncClient, chunk: dict, worker: dict, data: bytes) -> bool:
     # Persist uncertainty BEFORE the request: a lost response may still mean a stored copy.
     await _run_sync(db.upsert_replica, chunk["chunk_id"], worker["worker_id"], "PENDING_DELETE")
     for _ in range(2):
         try:
-            response = await http.put(f'{worker["base_url"]}/internal/chunks/{chunk["chunk_id"]}',
-                content=data, headers={"X-Chunk-SHA256": chunk["sha256"], "Content-Type": "application/octet-stream"})
-            if response.status_code not in {200, 201}:
-                break
-            ack = response.json()
-            if not isinstance(ack, dict) or any(ack.get(k) != chunk[k] for k in ("chunk_id", "size", "sha256")):
-                break
+            with _transfer(chunk, worker["worker_id"], "to_worker") as verified:
+                response = await http.put(f'{worker["base_url"]}/internal/chunks/{chunk["chunk_id"]}',
+                    content=data, headers={"X-Chunk-SHA256": chunk["sha256"], "Content-Type": "application/octet-stream"})
+                if response.status_code not in {200, 201}:
+                    break
+                ack = response.json()
+                if not isinstance(ack, dict) or any(ack.get(k) != chunk[k] for k in ("chunk_id", "size", "sha256")):
+                    break
+                verified()
             await _run_sync(db.upsert_replica, chunk["chunk_id"], worker["worker_id"], "HEALTHY")
             return True
         except (httpx.HTTPError, ValueError):
@@ -205,20 +231,22 @@ async def read_verified_chunk(http: httpx.AsyncClient, chunk: dict) -> bytes:
             continue
         state = None
         try:
-            async with http.stream("GET", f'{replica["base_url"]}/internal/chunks/{chunk["chunk_id"]}') as response:
-                if response.status_code == 404:
-                    state = "MISSING"
-                elif response.status_code == 409:
-                    state = "CORRUPT"
-                elif response.status_code == 200:
-                    data = bytearray()
-                    async for part in response.aiter_bytes(chunk_size=65_536):
-                        data.extend(part)
-                        if len(data) > chunk["size"]:
-                            break
-                    if len(data) == chunk["size"] and hashlib.sha256(data).hexdigest() == chunk["sha256"]:
-                        return bytes(data)
-                    state = "CORRUPT"
+            with _transfer(chunk, replica["worker_id"], "from_worker") as verified:
+                async with http.stream("GET", f'{replica["base_url"]}/internal/chunks/{chunk["chunk_id"]}') as response:
+                    if response.status_code == 404:
+                        state = "MISSING"
+                    elif response.status_code == 409:
+                        state = "CORRUPT"
+                    elif response.status_code == 200:
+                        data = bytearray()
+                        async for part in response.aiter_bytes(chunk_size=65_536):
+                            data.extend(part)
+                            if len(data) > chunk["size"]:
+                                break
+                        if len(data) == chunk["size"] and hashlib.sha256(data).hexdigest() == chunk["sha256"]:
+                            verified()
+                            return bytes(data)
+                        state = "CORRUPT"
         except httpx.HTTPError:
             log.warning("READ_UNAVAILABLE chunk=%s worker=%s", chunk["chunk_id"], replica["worker_id"])
         if state:

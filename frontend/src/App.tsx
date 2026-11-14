@@ -26,6 +26,7 @@ import { Dialog } from "./components/Dialog";
 import { ObjectInspector } from "./components/ObjectInspector";
 import { ObjectTable } from "./components/ObjectTable";
 import { UploadPanel } from "./components/UploadPanel";
+import { SystemExplorer } from "./components/SystemExplorer";
 
 export default function App() {
   const [objects, setObjects] = useState<StoredObject[]>([]),
@@ -62,11 +63,15 @@ export default function App() {
     activeLoad.current = controller;
     setRefreshing(true);
     try {
+      const signal = AbortSignal.any([
+        controller.signal,
+        AbortSignal.timeout(15_000),
+      ]);
       const [files, snapshot] = await Promise.all([
         request<StoredObject[]>("/api/v1/objects", {
-          signal: controller.signal,
+          signal,
         }),
-        request<Overview>("/api/v1/overview", { signal: controller.signal }),
+        request<Overview>("/api/v1/overview", { signal }),
       ]);
       if (!controller.signal.aborted) {
         setObjects(files);
@@ -77,6 +82,7 @@ export default function App() {
     } catch (error) {
       if (!controller.signal.aborted) setError(errorMessage(error));
     } finally {
+      if (activeLoad.current === controller) activeLoad.current = null;
       if (!controller.signal.aborted) {
         setRefreshing(false);
         setLoading(false);
@@ -85,9 +91,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void load();
-    }, 10_000);
+    const timer = window.setInterval(
+      () => {
+        if (!document.hidden && !activeLoad.current) void load();
+      },
+      view === "cluster" ? 2000 : 10_000,
+    );
     const visible = () => {
       if (!document.hidden) void load();
     };
@@ -97,7 +106,7 @@ export default function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [load]);
+  }, [load, view]);
   useEffect(() => {
     const timers = toastTimers.current;
     return () => timers.forEach(window.clearTimeout);
@@ -247,7 +256,7 @@ export default function App() {
               <p>
                 {view === "files"
                   ? "Everything you store, within reach."
-                  : "A clear view of the nodes behind your files."}
+                  : "Follow your data, from the first chunk to its verified copies."}
               </p>
             </div>
             <div className="heading-actions">
@@ -334,7 +343,11 @@ export default function App() {
               <i
                 className={`status-dot ${error ? "red" : lastUpdated ? "green" : "amber"}`}
               />
-              {error ? "Snapshot unavailable" : "Refreshes every 10s"}
+              {error
+                ? "Snapshot unavailable"
+                : view === "cluster"
+                  ? "Refreshes every 2s"
+                  : "Refreshes every 10s"}
             </span>
           </div>
           <div hidden={view !== "files"} className="workspace-layout">
@@ -388,14 +401,20 @@ export default function App() {
           </div>
           {view === "cluster" && (
             <div className="cluster-workspace">
-              <ClusterPanel overview={overview} stale={!!error} full />
+              <SystemExplorer
+                overview={overview}
+                objects={objects}
+                stale={!!error}
+                capturedAt={lastUpdated?.toISOString() ?? null}
+                onInspect={setSelected}
+              />
               <div className="cluster-health-note">
                 <Info size={18} />
                 <p>
                   {error
                     ? "The controller is unreachable. Current node and recovery status cannot be confirmed."
                     : overview?.recovery_available
-                      ? "The recovery service is connected. Replica repair and node reconciliation run in the background."
+                      ? "The recovery service is connected. Recorded replica changes and repair events show observed progress."
                       : "Recovery service unavailable. Registered nodes remain joining until their inventories are reconciled. Existing files can still be downloaded when a verified copy is available."}
                 </p>
               </div>

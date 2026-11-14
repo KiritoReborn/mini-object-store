@@ -20,6 +20,8 @@ After editing, run `npm run build` to typecheck and regenerate the committed con
 
 ## Features and state boundaries
 
+The Cluster page now contains the live system explorer: actual worker wiring/transfer observations, selected-file chunk placement, storage-distribution bars, recovery observations, filterable activity and JSON exports. Read LIVE_SYSTEM.md for exact semantics, pause/replay behavior, polling limits and the optional B repair hook. scripts/Start-Artaud.ps1 is the verified local startup entry point; MEMBER_A_READY.md explains its use and the remaining shared dependencies.
+
 - File search, MIME-based filtering, sorting and ten-row pagination.
 - Native chooser/drag-and-drop, multi-file queue, per-file cancellation/requeue/error state and actual upload progress. Sending 100% is followed by confirmation; only controller 201 means Stored. Removing a waiting file prevents its later upload.
 - Downloads stream to a user-selected writable file when the browser supports that capability. Other browsers use a Blob/object-URL fallback, which buffers the response and may use browser-managed memory/disk. File chooser cancellation is not reported as download success. Errors stay inside the workspace/inspector.

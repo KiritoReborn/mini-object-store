@@ -56,3 +56,27 @@ export type ToastMessage = {
   kind: "success" | "error" | "info";
 };
 export type Notify = (text: string, kind?: ToastMessage["kind"]) => void;
+
+export interface ActivityEvent {
+  id: number;
+  timestamp: string;
+  kind: string;
+  object_id: string | null;
+  chunk_id: string | null;
+  worker_id: string | null;
+  transfer_id: string | null;
+  direction: "to_worker" | "from_worker" | null;
+  size: number | null;
+  state: string | null;
+  previous_state: string | null;
+  name: string | null;
+  detail: string | null;
+}
+export interface ActivityBatch {
+  stream_id: string;
+  oldest_id: number;
+  latest_id: number;
+  next_cursor: number;
+  truncated: boolean;
+  events: ActivityEvent[];
+}

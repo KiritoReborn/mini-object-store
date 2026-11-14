@@ -68,7 +68,9 @@ One self-hosted Geist variable face carries the product; Segoe UI/system sans is
 
 ## Layout
 
-Desktop has a 216px sticky navigation rail, flexible main area and a 260px system rail. The main frame uses 38px padding and a 29px content gap. At 1199px the system rail moves below files; at 860px navigation narrows; at 640px it becomes top navigation. At 359px the Size column moves into filename secondary text. Desktop tables paginate ten rows; the inspector scrolls independently while its actions remain visible. Dense lists are intentional; decorative metric cards and invented graphs are not part of this system.
+Desktop has a 216px sticky navigation rail, flexible main area and a 260px system rail. The main frame uses 38px padding and a 29px content gap. At 1199px the system rail moves below files; at 860px navigation narrows; at 640px it becomes top navigation. At 359px the Size column moves into filename secondary text. Desktop tables paginate ten rows; the inspector scrolls independently while its actions remain visible. Dense lists are intentional; data visualizations must explain actual observations.
+
+Cluster extends this system with a live SVG connection map, controller at left and workers branching at right. On phones a shared controller trunk branches to each worker. HTML buttons carry labels/actions over the geometry; node status always has text. Green traveling marks represent recent worker-transfer observations for four seconds; blue marks are explicitly timestamped historical replay. Neither is an in-flight or throughput meter. Pause freezes this surface; reduced motion removes travel. The eight-row chunk matrix provides exact replica text; distribution bars show shares of recorded copy bytes. Recovery stages describe detection, reconciliation and verification with actual counts and recorded changes, never fictitious progress. The explorer uses 24px section gaps and 24px internal padding, reducing to 16px on phones.
 
 ## Elevation & Depth
 

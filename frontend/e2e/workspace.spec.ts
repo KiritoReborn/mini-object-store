@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { readFile } from "node:fs/promises";
+import type { ActivityEvent } from "../src/types";
 
 const names = [
   "architecture-notes.pdf",
@@ -58,6 +60,17 @@ export async function fixture(page: Page, degraded = false, empty = false) {
     const request = route.request(),
       url = new URL(request.url()),
       method = request.method();
+    if (url.pathname.endsWith("/activity"))
+      return route.fulfill({
+        json: {
+          stream_id: "fixture-session",
+          oldest_id: 0,
+          latest_id: 0,
+          next_cursor: 0,
+          truncated: false,
+          events: [],
+        },
+      });
     if (url.pathname.endsWith("/overview"))
       return route.fulfill({
         json: {
@@ -487,4 +500,399 @@ test("the close control reflects deletion in progress", async ({ page }) => {
   } finally {
     release();
   }
+});
+
+function observedEvent(
+  id: number,
+  changes: Partial<ActivityEvent> = {},
+): ActivityEvent {
+  return {
+    id,
+    kind: "transfer_completed",
+    timestamp: new Date().toISOString(),
+    object_id: makeObject(names[0]).object_id,
+    chunk_id: `${makeObject(names[0]).object_id}_0`,
+    worker_id: "worker1",
+    direction: "to_worker",
+    size: 1000000,
+    state: null,
+    previous_state: null,
+    transfer_id: `transfer-${id}`,
+    name: names[0],
+    detail: null,
+    ...changes,
+  };
+}
+
+test("live topology, actual placement, event replay and diagnostic exports", async ({
+  page,
+}) => {
+  await fixture(page);
+  const events = [
+    observedEvent(1),
+    observedEvent(2, {
+      kind: "replica_state",
+      previous_state: "CORRUPT",
+      state: "HEALTHY",
+      direction: null,
+    }),
+  ];
+  await page.route("**/api/v1/activity?**", (route) =>
+    route.fulfill({
+      json: {
+        stream_id: "observed",
+        oldest_id: 1,
+        latest_id: 2,
+        next_cursor: 2,
+        truncated: false,
+        events:
+          Number(new URL(route.request().url()).searchParams.get("after")) === 0
+            ? events
+            : [],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "The path of your data" }),
+  ).toBeVisible();
+  await expect(page.locator(".topology-wires .wire-base")).toHaveCount(4);
+  await page
+    .getByRole("button", { name: "Inspect worker1", exact: true })
+    .click();
+  await expect(
+    page.getByRole("definition").filter({ hasText: "worker1" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Activity worker")).toHaveValue("worker1");
+  await page
+    .getByLabel("File to visualize")
+    .selectOption(makeObject(names[0]).object_id);
+  const matrix = page.getByRole("region", { name: /Chunk placement table/ });
+  await expect(matrix.getByText("Healthy", { exact: true })).toHaveCount(2);
+  await matrix.getByRole("button", { name: /Chunk 1/ }).click();
+  await expect(page.locator(".topology-worker.holds-copy")).toHaveCount(2);
+  await expect(
+    page.getByRole("heading", { name: "Recent activity" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Replay transfer 1", exact: true })
+    .click();
+  await expect(page.getByText(/Replay of observed event/)).toBeVisible();
+  const manifestDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Export manifest", exact: true })
+    .click();
+  const manifest = await manifestDownload;
+  expect(
+    JSON.parse(await readFile((await manifest.path())!, "utf8")).manifest
+      .object_id,
+  ).toBe(makeObject(names[0]).object_id);
+  const exportDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export diagnostics" }).click();
+  const exported = await exportDownload;
+  const data = JSON.parse(await readFile((await exported.path())!, "utf8"));
+  expect(data.overview.workers).toHaveLength(4);
+  expect(data.activity.map((event: ActivityEvent) => event.id)).toEqual([1, 2]);
+  expect(data.snapshot_stale).toBe(false);
+  expect(data.files[0]).not.toHaveProperty("metadata");
+  await page.getByLabel("Activity type").selectOption("recovery");
+  await expect(
+    page.locator(".activity-list").getByText(/^Replica restored/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 1", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("pausing freezes live observations until resumed", async ({ page }) => {
+  await fixture(page);
+  let stage = 1;
+  let calls = 0;
+  await page.route("**/api/v1/activity?**", (route) => {
+    calls++;
+    return route.fulfill({
+      json: {
+        stream_id: "pause-test",
+        oldest_id: 1,
+        latest_id: stage,
+        next_cursor: stage,
+        truncated: false,
+        events: [observedEvent(stage)],
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 1", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Pause live view" }).click();
+  const pausedCalls = calls;
+  stage = 2;
+  await page.waitForTimeout(2400);
+  expect(calls).toBe(pausedCalls);
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 2", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 1", exact: true }),
+  ).toBeDisabled();
+  await expect(page.locator(".wire-packet")).toHaveCount(0);
+  await page.getByRole("button", { name: "Resume live view" }).click();
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 2", exact: true }),
+  ).toBeVisible();
+});
+
+test("activity reports stream gaps, restarts and failures without inventing live traffic", async ({
+  page,
+}) => {
+  await fixture(page);
+  let mode = "gap";
+  await page.route("**/api/v1/activity?**", (route) =>
+    mode === "error"
+      ? route.fulfill({
+          status: 503,
+          json: { message: "Temporarily unavailable" },
+        })
+      : route.fulfill({
+          json: {
+            stream_id: mode,
+            oldest_id: mode === "gap" ? 100 : 1,
+            latest_id: mode === "gap" ? 100 : 1,
+            next_cursor: mode === "gap" ? 100 : 1,
+            truncated: mode === "gap",
+            events: [observedEvent(mode === "gap" ? 100 : 1)],
+          },
+        }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(page.getByText(/There is a gap in activity/)).toBeVisible();
+  mode = "restarted";
+  await expect(page.getByText(/Controller restarted/)).toBeVisible({
+    timeout: 6000,
+  });
+  await expect(
+    page.getByRole("button", { name: "Replay transfer 100", exact: true }),
+  ).toHaveCount(0);
+  mode = "error";
+  await expect(page.getByText(/Activity is unavailable/)).toBeVisible({
+    timeout: 6000,
+  });
+  await expect(page.locator(".wire-packet")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Replay transfer 1", exact: true })
+    .click();
+  await expect(page.getByText(/Replay of observed event/)).toBeVisible();
+});
+
+test("live system stays accessible and fits narrow screens with reduced motion", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page
+    .getByLabel("File to visualize")
+    .selectOption(makeObject(names[0]).object_id);
+  await expect(
+    page.getByRole("table", { name: "" }).filter({
+      has: page.getByRole("columnheader", { name: "worker1", exact: true }),
+    }),
+  ).toBeVisible();
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({
+    path: ".test-captures/system-desktop.png",
+    fullPage: true,
+  });
+  for (const width of [768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({
+    path: ".test-captures/system-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("chunk highlights follow refreshed replica state and clear on an unavailable snapshot", async ({
+  page,
+}) => {
+  await fixture(page);
+  const oid = makeObject(names[0]).object_id;
+  let failed = false,
+    corrupt = false;
+  await page.route(`**/api/v1/objects/${oid}/metadata`, (route) =>
+    failed
+      ? route.fulfill({
+          status: 503,
+          json: { message: "Manifest unavailable" },
+        })
+      : route.fulfill({
+          json: {
+            ...makeObject(names[0]),
+            chunks: [
+              {
+                chunk_id: `${oid}_0`,
+                index: 0,
+                size: 1000000,
+                sha256: "b".repeat(64),
+                workers: corrupt ? ["worker3"] : ["worker1", "worker3"],
+                replicas: ["worker1", "worker3"].map((worker_id) => ({
+                  worker_id,
+                  state:
+                    corrupt && worker_id === "worker1" ? "CORRUPT" : "HEALTHY",
+                  worker_status: "ALIVE",
+                  last_verified_at: null,
+                })),
+              },
+            ],
+          },
+        }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.getByLabel("File to visualize").selectOption(oid);
+  await page.getByRole("button", { name: /Chunk 1/ }).click();
+  await expect(page.locator(".topology-worker.holds-copy")).toHaveCount(2);
+  corrupt = true;
+  await expect(page.getByText("Corrupt", { exact: true })).toBeVisible({
+    timeout: 6000,
+  });
+  await expect(page.locator(".topology-worker.holds-copy")).toHaveCount(1);
+  failed = true;
+  await expect(page.getByText(/Chunk locations could not refresh/)).toBeVisible(
+    { timeout: 6000 },
+  );
+  await expect(page.locator(".topology-worker.holds-copy")).toHaveCount(0);
+  await expect(page.getByText("Unknown", { exact: true })).toHaveCount(2);
+});
+
+test("slow successful manifest requests finish across overview refreshes", async ({
+  page,
+}) => {
+  await fixture(page);
+  const oid = makeObject(names[0]).object_id;
+  await page.route(`**/api/v1/objects/${oid}/metadata`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    return route.fulfill({
+      json: {
+        ...makeObject(names[0]),
+        chunks: [
+          {
+            chunk_id: `${oid}_0`,
+            index: 0,
+            size: 1000000,
+            sha256: "b".repeat(64),
+            workers: ["worker1"],
+            replicas: [
+              {
+                worker_id: "worker1",
+                state: "HEALTHY",
+                worker_status: "ALIVE",
+                last_verified_at: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.getByLabel("File to visualize").selectOption(oid);
+  await expect(page.getByRole("button", { name: /Chunk 1/ })).toBeVisible({
+    timeout: 8000,
+  });
+});
+
+test("slow cluster snapshots finish without being cancelled by polling", async ({
+  page,
+}) => {
+  await fixture(page);
+  let slow = false;
+  await page.route("**/api/v1/overview", async (route) => {
+    if (slow) await new Promise((resolve) => setTimeout(resolve, 3100));
+    return route.fulfill({
+      json: {
+        object_count: 8,
+        logical_bytes: slow ? 222 : 111,
+        chunk_count: 71,
+        healthy_replica_count: 142,
+        under_replicated_chunks: 0,
+        corrupt_replicas: 0,
+        worker_count: 4,
+        available_workers: 4,
+        replication_factor: 2,
+        chunk_size: 1000000,
+        recovery_available: true,
+        workers,
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(
+    page.locator(".storage-summary").getByText("111 B", { exact: true }),
+  ).toBeVisible();
+  slow = true;
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await expect(
+    page.locator(".storage-summary").getByText("222 B", { exact: true }),
+  ).toBeVisible({ timeout: 7000 });
+});
+
+test("explicit recovery transfer observations can travel and replay without inventing repair events", async ({
+  page,
+}) => {
+  await fixture(page);
+  const event = observedEvent(1, {
+    kind: "repair_completed",
+    direction: "to_worker",
+    worker_id: "worker2",
+  });
+  await page.route("**/api/v1/activity?**", (route) =>
+    route.fulfill({
+      json: {
+        stream_id: "repair-hook",
+        oldest_id: 1,
+        latest_id: 1,
+        next_cursor: 1,
+        truncated: false,
+        events: [event],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.getByLabel("Activity type").selectOption("recovery");
+  await expect(
+    page.locator('[data-wire-worker="worker2"] .wire-packet'),
+  ).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Replay repair 1", exact: true })
+    .click();
+  await expect(
+    page.getByText(/Replay of observed event.*Repair completed/),
+  ).toBeVisible();
 });

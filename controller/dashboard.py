@@ -1,12 +1,17 @@
 """Read-only dashboard summaries; recorded replicas do not measure disk capacity."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
-from . import config, database as db
+from . import config, database as db, telemetry
 from .placement import heartbeat_is_fresh
 
 router = APIRouter()
+
+
+@router.get("/api/v1/activity", tags=["dashboard"])
+def activity(after: int = Query(0, ge=0)):
+    return telemetry.get_activity(after)
 
 
 @router.get("/api/v1/overview", tags=["dashboard"])
