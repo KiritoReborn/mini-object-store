@@ -7,7 +7,7 @@ Read this first in Codex, Claude or a new chat. Latest user instructions overrid
 - User is Member A. Build frontend/controller and a simple demo. **Do not implement or modify worker code or recovery**; Member B is implementing those.
 - Deployment choice: static frontend on Vercel; controller plus four Docker workers on the PC; one ngrok HTTPS address connects the browser directly to the backend. No nginx gateway, cloud database, VM or second application server. See DEMO.md.
 - An interim recovery experiment was used while investigating endless JOINING, then removed when the user explicitly reserved recovery for B. controller/recovery.py and its tests are absent. No interim recovery implementation is committed or published. Do not re-add it or manually promote workers.
-- Source branch: feature/controller. Prior implementation/UI commits b9cf180/671edd0/0da861c were merged into origin/master (latest observed be6d75b). Use git log/status for the publication commit of the current expansion. No force push or shared-master merge is intended.
+- Source branch: feature/controller. Synchronized with origin/master at be6d75b, then committed this expansion as **3ae2b93** and pushed it to origin/feature/controller. Post-push comparison showed 0 ahead / 0 behind and a clean working tree. Later documentation-only commits may follow. No force push or new shared-master merge was performed.
 
 ## What is implemented now
 
@@ -57,7 +57,7 @@ Actual local checks: Docker control API reported four running containers; worker
 
 ## Remaining work and safe continuation
 
-1. Final tests/docs review is complete. Publish the verified feature branch and verify its remote hash; use git log/status to confirm publication. Worker source and recovery hooks remain unchanged.
+1. Final tests/docs review and feature-branch publication are complete (3ae2b93). Worker source and recovery hooks remain unchanged. Review or merge through the team's normal GitHub workflow when ready.
 2. B implements controller/recovery.py start_reconciler/stop_reconciler and status.py router, plus CLI/reliability integration. Shared API/helper/lock contracts are in contracts/*.md. No heartbeat promotion shortcut.
 3. Connect Vercel, publish only frontend with VITE_API_BASE_URL, configure exact ARTAUD_ALLOWED_ORIGINS using Configure-Demo.ps1, start the local ngrok agent and verify the actual URLs. No Vercel upload proxy or extra gateway.
 4. Run the final joint stop/fallback/repair/rejoin/corruption demonstration using B's actual reconciler. Existing tests/live_controller_check.py remains explicitly controlled A-only evidence with test-only eligibility; it does not prove B's production recovery.
