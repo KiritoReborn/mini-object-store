@@ -4,6 +4,6 @@ services:
       ARTAUD_API_KEY: ${ARTAUD_API_KEY:?Set the owner access key in .env before enabling controls}
       ARTAUD_ALLOWED_ORIGINS: ${ARTAUD_ALLOWED_ORIGINS:-}
       ARTAUD_DEMO_CONTROLS: "true"
-      ARTAUD_DOCKER_PROJECT: mini-object-store
+      ARTAUD_DOCKER_PROJECT: cloud_project
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

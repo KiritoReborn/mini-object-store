@@ -14,6 +14,7 @@ import { bytes, dateLabel, errorMessage, parseMetadata } from "../format";
 import type { Notify, ObjectDetails, Overview, StoredObject } from "../types";
 import { Dialog } from "./Dialog";
 import { FileIcon } from "./FileIcon";
+import { IntegrityVerifier } from "./IntegrityVerifier";
 
 const tabs = ["Details", "Metadata", "Chunks"] as const;
 type Tab = (typeof tabs)[number];
@@ -280,6 +281,10 @@ export function ObjectInspector({
                     download.
                   </p>
                 </div>
+                <IntegrityVerifier
+                  key={details.object_id}
+                  expectedHash={details.sha256}
+                />
               </>
             )}
             {tab === "Metadata" && (

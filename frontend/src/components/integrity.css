@@ -1,0 +1,111 @@
+.integrity-tool {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.integrity-tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--green);
+  font-weight: 600;
+  cursor: pointer;
+}
+.integrity-tool > summary::after {
+  content: "+";
+  margin-left: auto;
+}
+.integrity-tool[open] > summary::after {
+  content: "−";
+}
+.integrity-tool .integrity-content {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 12px;
+}
+.integrity-tool p {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.integrity-tool .error-text {
+  color: var(--red);
+}
+.integrity-tool label {
+  display: block;
+  margin-bottom: 7px;
+  font-weight: 550;
+}
+.integrity-tool input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.integrity-tool input[type="file"] {
+  font-size: 12px;
+}
+.integrity-tool input::file-selector-button {
+  padding: 5px 8px;
+  margin-right: 8px;
+  background: var(--subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.integrity-tool .integrity-file dl {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.integrity-tool .integrity-file dl > div {
+  display: grid;
+  grid-template-columns: 65px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+.integrity-tool dt {
+  color: var(--muted);
+}
+.integrity-tool dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.integrity-tool code {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.integrity-tool .integrity-expected p {
+  margin: 8px 0;
+}
+.integrity-tool .integrity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.integrity-tool progress {
+  width: 100%;
+  accent-color: var(--green);
+}
+.integrity-tool .integrity-result {
+  border-left: 3px solid var(--green);
+  background: var(--green-soft);
+  padding: 12px;
+  border-radius: 7px;
+}
+.integrity-tool .integrity-result.mismatch {
+  border-color: var(--red);
+  background: #fff4f5;
+}
+.integrity-tool .integrity-result h3 {
+  margin-bottom: 7px;
+  font-size: 14px;
+}
