@@ -12,17 +12,17 @@ const localFile = (name: string, text: string) => ({
   buffer: Buffer.from(text),
 });
 
-async function openTool(page: Page, sha256 = ABC) {
+async function openTool(page: Page, sha256 = ABC, size = 3) {
   const object = {
     object_id: "550e8400-e29b-41d4-a716-446655440000",
     name: "stored.bin",
-    size: 3,
+    size,
     content_type: "application/octet-stream",
     status: "READY",
     created_at: "2026-11-16T08:00:00Z",
     updated_at: "2026-11-16T08:00:00Z",
     sha256,
-    num_chunks: 1,
+    num_chunks: size ? 1 : 0,
     metadata: {},
   };
   // All API traffic is fulfilled here; the suite never uses the live backend.
@@ -35,7 +35,7 @@ async function openTool(page: Page, sha256 = ABC) {
       return route.fulfill({
         json: {
           object_count: 1,
-          logical_bytes: 3,
+          logical_bytes: size,
           chunk_count: 1,
           healthy_replica_count: 0,
           under_replicated_chunks: 1,
@@ -64,14 +64,14 @@ async function openTool(page: Page, sha256 = ABC) {
   return tool;
 }
 
-test("local comparison, object checksum, copy and JSON export send no file data", async ({
+test("one file verifies against the stored checksum and exports only metadata", async ({
   page,
   context,
 }) => {
   const content = "never-send-this-local-payload";
   const hash = createHash("sha256").update(content).digest("hex");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  const tool = await openTool(page, hash);
+  const tool = await openTool(page, hash, Buffer.byteLength(content));
   const outbound: string[] = [];
   const consoleMessages: string[] = [];
   page.on("request", (request) =>
@@ -80,36 +80,25 @@ test("local comparison, object checksum, copy and JSON export send no file data"
     ),
   );
   page.on("console", (message) => consoleMessages.push(message.text()));
-  await expect(tool.getByLabel("Expected SHA-256 (optional)")).toHaveValue(
-    hash,
-  );
-  await tool
-    .getByLabel("Original file", { exact: true })
-    .setInputFiles(localFile("original-private.bin", content));
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(localFile("downloaded-private.bin", content));
-  await tool
-    .getByRole("button", { name: "Compare files", exact: true })
-    .click();
+  await expect(tool.locator("input")).toHaveCount(1);
   await expect(
-    tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
-  ).toBeVisible();
+    tool.getByRole("button", { name: "Verify file" }),
+  ).toBeDisabled();
+  await tool
+    .getByLabel("File to verify", { exact: true })
+    .setInputFiles(localFile("local-private.bin", content));
+  await tool.getByRole("button", { name: "Verify file" }).click();
   await expect(
-    tool.getByText("Original vs expected: MATCH", { exact: true }),
+    tool.getByRole("heading", { name: "MATCH", exact: true }),
   ).toBeVisible();
-  await expect(
-    tool.getByText("Downloaded vs expected: MATCH", { exact: true }),
-  ).toBeVisible();
-  await expect(tool.locator("code")).toHaveText([hash, hash]);
+  await expect(tool.locator("code")).toHaveText(hash);
   await expect(
     tool.getByText(`${Buffer.byteLength(content)} bytes`, { exact: true }),
-  ).toHaveCount(2);
-  await tool.getByRole("button", { name: "Copy original SHA-256" }).click();
-  await expect(
-    tool.getByText("Original SHA-256 copied", { exact: true }),
   ).toBeVisible();
+  await tool.getByRole("button", { name: "Copy file SHA-256" }).click();
+  await expect(tool.getByText("File SHA-256 copied")).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(hash);
+
   const download = page.waitForEvent("download");
   await tool.getByRole("button", { name: "Export integrity report" }).click();
   const artifact = await download;
@@ -120,134 +109,81 @@ test("local comparison, object checksum, copy and JSON export send no file data"
     algorithm: "SHA-256",
     result: "MATCH",
     expected_hash: hash,
-    original: {
-      name: "original-private.bin",
+    file: {
+      name: "local-private.bin",
       size: Buffer.byteLength(content),
       sha256: hash,
     },
-    downloaded: {
-      name: "downloaded-private.bin",
-      size: Buffer.byteLength(content),
-      sha256: hash,
-    },
-    original_matches_expected: true,
-    downloaded_matches_expected: true,
   });
   expect(Number.isNaN(Date.parse(report.timestamp))).toBe(false);
   expect(body).not.toContain(content);
   expect(outbound.join("\n")).not.toMatch(
-    /POST|PUT|PATCH|original-private|downloaded-private|never-send-this-local-payload/,
+    /POST|PUT|PATCH|local-private|never-send-this-local-payload/,
   );
   expect(outbound.join("\n")).not.toContain(hash);
   expect(consoleMessages.join("\n")).not.toMatch(
-    /original-private|downloaded-private|never-send-this-local-payload/,
+    /local-private|never-send-this-local-payload/,
   );
   expect(consoleMessages.join("\n")).not.toContain(hash);
 });
 
-test("different sizes and same-size different bytes both mismatch and retain both hashes", async ({
+test("wrong files mismatch even at the same size and a replacement clears the result", async ({
   page,
 }) => {
   const tool = await openTool(page);
-  await tool
-    .getByLabel("Original file", { exact: true })
-    .setInputFiles(localFile("original.bin", "abc"));
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(localFile("download.bin", "abcd"));
-  await tool
-    .getByRole("button", { name: "Compare files", exact: true })
-    .click();
-  await expect(
-    tool.getByRole("heading", { name: "Files: MISMATCH", exact: true }),
-  ).toBeVisible();
-  await expect(tool.locator("code")).toHaveText([
-    ABC,
-    createHash("sha256").update("abcd").digest("hex"),
-  ]);
-  await expect(
-    tool.getByText("Original vs expected: MATCH", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    tool.getByText("Downloaded vs expected: MISMATCH", { exact: true }),
-  ).toBeVisible();
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(localFile("download.bin", "xyz"));
-  await expect(tool.getByRole("heading", { name: /^Files:/ })).toHaveCount(0);
-  await expect(
-    tool.getByRole("button", { name: "Export integrity report" }),
-  ).toBeDisabled();
-  await tool
-    .getByRole("button", { name: "Compare files", exact: true })
-    .click();
-  await expect(
-    tool.getByRole("heading", { name: "Files: MISMATCH", exact: true }),
-  ).toBeVisible();
-  await expect(tool.locator("code")).toHaveText([
-    ABC,
-    createHash("sha256").update("xyz").digest("hex"),
-  ]);
+  const file = tool.getByLabel("File to verify", { exact: true });
+  const verify = tool.getByRole("button", { name: "Verify file" });
+  for (const content of ["abcd", "xyz"]) {
+    await file.setInputFiles(localFile("wrong.bin", content));
+    await expect(tool.getByRole("heading", { name: "MISMATCH" })).toHaveCount(
+      0,
+    );
+    await expect(
+      tool.getByRole("button", { name: "Export integrity report" }),
+    ).toBeDisabled();
+    await verify.click();
+    await expect(
+      tool.getByRole("heading", { name: "MISMATCH", exact: true }),
+    ).toBeVisible();
+    await expect(tool.locator("code")).toHaveText(
+      createHash("sha256").update(content).digest("hex"),
+    );
+  }
 });
 
-test("empty files, identical selections, picker cancellation and optional expected hashes", async ({
+test("accepts an empty file and preserves its result when the picker is cancelled", async ({
   page,
 }) => {
-  const tool = await openTool(page);
-  const expected = tool.getByLabel("Expected SHA-256 (optional)");
-  const empty = localFile("empty.bin", "");
-  await tool.getByLabel("Original file", { exact: true }).setInputFiles(empty);
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(empty);
-  await expected.fill("  " + EMPTY.toUpperCase() + "  ");
-  await tool
-    .getByRole("button", { name: "Compare files", exact: true })
-    .click();
+  const tool = await openTool(page, EMPTY, 0);
+  const file = tool.getByLabel("File to verify", { exact: true });
+  await file.setInputFiles(localFile("empty.bin", ""));
+  await tool.getByRole("button", { name: "Verify file" }).click();
   await expect(
-    tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
+    tool.getByRole("heading", { name: "MATCH", exact: true }),
   ).toBeVisible();
-  await expect(tool.locator("code")).toHaveText([EMPTY, EMPTY]);
-  await expect(tool.getByText("0 bytes", { exact: true })).toHaveCount(2);
+  await expect(tool.locator("code")).toHaveText(EMPTY);
+  await expect(tool.getByText("0 bytes", { exact: true })).toBeVisible();
+  await file.dispatchEvent("cancel", { bubbles: true });
   await expect(
-    tool.getByText("Downloaded vs expected: MATCH", { exact: true }),
+    tool.getByRole("heading", { name: "MATCH", exact: true }),
   ).toBeVisible();
-  await tool
-    .getByLabel("Original file", { exact: true })
-    .dispatchEvent("cancel");
-  await tool.getByLabel("Downloaded file", { exact: true }).setInputFiles([]);
+});
+
+test("cannot verify without a valid stored checksum", async ({ page }) => {
+  const tool = await openTool(page, "");
+  await expect(tool.getByRole("alert")).toContainText("stored checksum");
+  await expect(tool.getByLabel("File to verify")).toBeDisabled();
   await expect(
-    tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
-  ).toBeVisible();
-  await expected.fill("invalid hash");
-  await expect(tool.getByRole("alert")).toContainText("64 hexadecimal");
-  await expect(
-    tool.getByRole("button", { name: "Export integrity report" }),
+    tool.getByRole("button", { name: "Verify file" }),
   ).toBeDisabled();
-  await expected.fill("");
-  await expect(
-    tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
-  ).toBeVisible();
-  await expect(tool.getByText(/vs expected:/)).toHaveCount(0);
-  const download = page.waitForEvent("download");
-  await tool.getByRole("button", { name: "Export integrity report" }).click();
-  const report = JSON.parse(
-    await readFile((await (await download).path())!, "utf8"),
-  );
-  expect(report.expected_hash).toBeNull();
-  expect(report.original_matches_expected).toBeNull();
-  await tool.getByRole("button", { name: "Use object checksum" }).click();
-  await expect(expected).toHaveValue(ABC);
-  await expect(
-    tool.getByText("Original vs expected: MISMATCH", { exact: true }),
-  ).toBeVisible();
 });
 
 for (const cancellation of ["replacement selection", "cancel button"]) {
   test(`${cancellation} discards late hashes and remains responsive`, async ({
     page,
   }) => {
-    const tool = await openTool(page);
+    const hash = createHash("sha256").update("xyz").digest("hex");
+    const tool = await openTool(page, hash);
     await page.evaluate(() => {
       const digest = crypto.subtle.digest.bind(crypto.subtle);
       let first = true;
@@ -273,43 +209,36 @@ for (const cancellation of ["replacement selection", "cancel button"]) {
       });
     });
     await tool
-      .getByLabel("Original file", { exact: true })
+      .getByLabel("File to verify", { exact: true })
       .setInputFiles(localFile("old.bin", "abc"));
     await tool
-      .getByLabel("Downloaded file", { exact: true })
-      .setInputFiles(localFile("old-copy.bin", "abc"));
-    await tool
-      .getByRole("button", { name: "Compare files", exact: true })
+      .getByRole("button", { name: "Verify file", exact: true })
       .click();
     await expect(tool.getByRole("progressbar")).toBeVisible();
     await expect(
-      tool.getByRole("button", { name: "Compare files", exact: true }),
+      tool.getByRole("button", { name: "Verify file", exact: true }),
     ).toBeDisabled();
     if (cancellation === "cancel button") {
-      await tool.getByRole("button", { name: "Cancel comparison" }).click();
-      await expect(tool.getByText(/Comparison cancelled/)).toBeVisible();
+      await tool.getByRole("button", { name: "Cancel verification" }).click();
+      await expect(tool.getByText(/Verification cancelled/)).toBeVisible();
     }
     await tool
-      .getByLabel("Original file", { exact: true })
+      .getByLabel("File to verify", { exact: true })
       .setInputFiles(localFile("new.bin", "xyz"));
     await tool
-      .getByLabel("Downloaded file", { exact: true })
-      .setInputFiles(localFile("new-copy.bin", "xyz"));
-    await tool
-      .getByRole("button", { name: "Compare files", exact: true })
+      .getByRole("button", { name: "Verify file", exact: true })
       .click();
     await expect(
-      tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
+      tool.getByRole("heading", { name: "MATCH", exact: true }),
     ).toBeVisible();
     await page.evaluate(async () =>
       (
         window as Window & { releaseIntegrityDigest?: () => Promise<void> }
       ).releaseIntegrityDigest?.(),
     );
-    const hash = createHash("sha256").update("xyz").digest("hex");
-    await expect(tool.locator("code")).toHaveText([hash, hash]);
+    await expect(tool.locator("code")).toHaveText(hash);
     await tool
-      .getByLabel("Original file", { exact: true })
+      .getByLabel("File to verify", { exact: true })
       .setInputFiles(localFile("last.bin", "abc"));
     await expect(tool.locator("code")).toHaveCount(0);
     await expect(
@@ -334,20 +263,17 @@ test("oversized files are rejected before any read", async ({ page }) => {
     });
   });
   await tool
-    .getByLabel("Original file", { exact: true })
+    .getByLabel("File to verify", { exact: true })
     .setInputFiles(localFile("oversized.bin", "not read"));
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(localFile("download.bin", "abc"));
   await expect(tool.getByRole("alert")).toContainText("exceeds 128 MiB");
   await expect(
-    tool.getByRole("button", { name: "Compare files", exact: true }),
+    tool.getByRole("button", { name: "Verify file", exact: true }),
   ).toBeDisabled();
   await expect(tool.locator("code")).toHaveCount(0);
 });
 
 for (const unavailable of ["insecure context", "missing Web Crypto"]) {
-  test(`explains ${unavailable} instead of starting a comparison`, async ({
+  test(`explains ${unavailable} instead of starting verification`, async ({
     page,
   }) => {
     await page.addInitScript((mode) => {
@@ -360,10 +286,10 @@ for (const unavailable of ["insecure context", "missing Web Crypto"]) {
       unavailable === "insecure context" ? "HTTPS or localhost" : "Web Crypto",
     );
     await expect(
-      tool.getByLabel("Original file", { exact: true }),
+      tool.getByLabel("File to verify", { exact: true }),
     ).toBeDisabled();
     await expect(
-      tool.getByRole("button", { name: "Compare files", exact: true }),
+      tool.getByRole("button", { name: "Verify file", exact: true }),
     ).toBeDisabled();
   });
 }
@@ -373,21 +299,18 @@ test("integrity controls work with the keyboard and fit narrow screens accessibl
 }) => {
   const tool = await openTool(page);
   await tool
-    .getByLabel("Original file", { exact: true })
+    .getByLabel("File to verify", { exact: true })
     .setInputFiles(
       localFile("original-" + "long-name-".repeat(12) + ".bin", "abc"),
     );
-  await tool
-    .getByLabel("Downloaded file", { exact: true })
-    .setInputFiles(localFile("download.bin", "abc"));
-  const compare = tool.getByRole("button", {
-    name: "Compare files",
+  const verify = tool.getByRole("button", {
+    name: "Verify file",
     exact: true,
   });
-  await compare.focus();
+  await verify.focus();
   await page.keyboard.press("Enter");
   await expect(
-    tool.getByRole("heading", { name: "Files: MATCH", exact: true }),
+    tool.getByRole("heading", { name: "MATCH", exact: true }),
   ).toBeVisible();
   for (const width of [768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -409,7 +332,9 @@ test("integrity controls work with the keyboard and fit narrow screens accessibl
         .analyze()
     ).violations,
   ).toEqual([]);
-  await tool.screenshot({ path: "test-results/integrity-mobile.png" });
+  await tool.screenshot({
+    path: test.info().outputPath("integrity-mobile.png"),
+  });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "stored.bin", exact: true }).click();

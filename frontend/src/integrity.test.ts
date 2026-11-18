@@ -1,19 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  compareFileDigests,
+  compareFileDigest,
   hashFile,
   integrityReport,
   localHashUnavailable,
   MAX_INTEGRITY_FILE_BYTES,
-  normalizeExpectedHash,
   type HashProgress,
 } from "./integrity";
 
 const EMPTY =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const ABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-const original = { name: "original.txt", size: 3, sha256: ABC };
-const downloaded = { ...original, name: "downloaded.txt" };
+const file = { name: "downloaded.txt", size: 3, sha256: ABC };
 
 beforeEach(() => vi.stubGlobal("isSecureContext", true));
 afterEach(() => {
@@ -115,91 +113,42 @@ describe("local SHA-256", () => {
   });
 });
 
-describe("file comparison and report", () => {
-  it("matches equal content regardless of names, including the same file twice", () => {
-    expect(compareFileDigests(original, downloaded).result).toBe("MATCH");
-    expect(compareFileDigests(original, original).result).toBe("MATCH");
-    const empty = { name: "empty.txt", size: 0, sha256: EMPTY };
-    expect(compareFileDigests(empty, empty).result).toBe("MATCH");
-  });
-
-  it("requires both equal sizes and equal hashes", () => {
-    expect(
-      compareFileDigests(original, { ...downloaded, size: 4 }).result,
-    ).toBe("MISMATCH");
-    expect(
-      compareFileDigests(original, { ...downloaded, sha256: EMPTY }).result,
-    ).toBe("MISMATCH");
-  });
-
-  it("normalizes pasted hashes and reports expected matches independently", () => {
-    expect(normalizeExpectedHash(`  ${ABC.toUpperCase()}\n`)).toBe(ABC);
-    expect(normalizeExpectedHash(" \n")).toBeNull();
-    expect(compareFileDigests(original, downloaded, ABC.toUpperCase())).toEqual(
-      {
-        result: "MATCH",
-        expected_hash: ABC,
-        original_matches_expected: true,
-        downloaded_matches_expected: true,
-      },
+describe("verification against the stored checksum", () => {
+  it("matches a single file using its SHA-256 regardless of filename", () => {
+    expect(compareFileDigest(file, ABC)).toBe("MATCH");
+    expect(compareFileDigest({ ...file, name: "original.txt" }, ABC)).toBe(
+      "MATCH",
     );
     expect(
-      compareFileDigests(original, { ...downloaded, sha256: EMPTY }, ABC),
-    ).toEqual({
-      result: "MISMATCH",
-      expected_hash: ABC,
-      original_matches_expected: true,
-      downloaded_matches_expected: false,
-    });
-    expect(compareFileDigests(original, downloaded, EMPTY)).toEqual({
-      result: "MATCH",
-      expected_hash: EMPTY,
-      original_matches_expected: false,
-      downloaded_matches_expected: false,
-    });
-    expect(
-      compareFileDigests(original, downloaded).original_matches_expected,
-    ).toBeNull();
+      compareFileDigest({ name: "empty.txt", size: 0, sha256: EMPTY }, EMPTY),
+    ).toBe("MATCH");
   });
 
-  it.each([
-    "abc",
-    "a".repeat(63),
-    "a".repeat(65),
-    "g".repeat(64),
-    "０".repeat(64),
-  ])("rejects an invalid expected hash: %s", (value) => {
-    expect(() => normalizeExpectedHash(value)).toThrow("64 hexadecimal");
+  it("mismatches when the selected file has a different SHA-256", async () => {
+    const wrong = await hashFile(new File(["xyz"], file.name));
+    expect(wrong.size).toBe(file.size);
+    expect(compareFileDigest(wrong, ABC)).toBe("MISMATCH");
   });
 
-  it("exports only named metadata fields, comparisons and an ISO timestamp", () => {
+  it("exports one selection, the stored checksum, and an ISO timestamp", () => {
     const timestamp = "2026-11-16T08:00:00.000Z";
     const fileWithContents = {
-      ...original,
+      ...file,
       contents: "never-export-local-file-bytes",
     };
-    const report = integrityReport(
-      fileWithContents,
-      downloaded,
-      ABC,
-      timestamp,
-    );
+    const report = integrityReport(fileWithContents, ABC, timestamp);
     expect(report).toEqual({
       timestamp,
       algorithm: "SHA-256",
-      scope: "Local file comparison; not a live replica audit",
-      original,
-      downloaded,
-      result: "MATCH",
+      scope: "Local file verification against stored object checksum",
+      file,
       expected_hash: ABC,
-      original_matches_expected: true,
-      downloaded_matches_expected: true,
+      result: "MATCH",
     });
-    expect(JSON.stringify(report)).not.toContain(
-      "never-export-local-file-bytes",
+    expect(JSON.stringify(report)).not.toContain(fileWithContents.contents);
+    expect(Number.isNaN(Date.parse(integrityReport(file, ABC).timestamp))).toBe(
+      false,
     );
-    expect(
-      Number.isNaN(Date.parse(integrityReport(original, downloaded).timestamp)),
-    ).toBe(false);
+    expect(integrityReport(file, EMPTY).result).toBe("MISMATCH");
   });
 });

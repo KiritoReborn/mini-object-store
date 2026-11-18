@@ -1,5 +1,4 @@
-// Web Crypto needs a complete buffer. Bound it before allocating or reading,
-// and process the two files sequentially rather than retaining both buffers.
+// Web Crypto needs a complete buffer. Check the size before allocating or reading.
 export const MAX_INTEGRITY_FILE_BYTES = 128 * 1024 * 1024;
 const READ_CHUNK_BYTES = 256 * 1024;
 
@@ -68,55 +67,22 @@ export async function hashFile(
   };
 }
 
-export function normalizeExpectedHash(value: string): string | null {
-  const hash = value.trim().toLowerCase();
-  if (!hash) return null;
-  if (!/^[0-9a-f]{64}$/.test(hash))
-    throw new Error(
-      "Enter exactly 64 hexadecimal characters, or leave the expected hash empty.",
-    );
-  return hash;
-}
-
-export function compareFileDigests(
-  original: FileDigest,
-  downloaded: FileDigest,
-  expected = "",
-) {
-  const expectedHash = normalizeExpectedHash(expected);
-  return {
-    result:
-      original.size === downloaded.size && original.sha256 === downloaded.sha256
-        ? ("MATCH" as const)
-        : ("MISMATCH" as const),
-    expected_hash: expectedHash,
-    original_matches_expected: expectedHash
-      ? original.sha256 === expectedHash
-      : null,
-    downloaded_matches_expected: expectedHash
-      ? downloaded.sha256 === expectedHash
-      : null,
-  };
+export function compareFileDigest(file: FileDigest, storedHash: string) {
+  return file.sha256 === storedHash ? "MATCH" : "MISMATCH";
 }
 
 export function integrityReport(
-  original: FileDigest,
-  downloaded: FileDigest,
-  expected = "",
+  file: FileDigest,
+  storedHash: string,
   timestamp = new Date().toISOString(),
 ) {
   // Explicit fields keep File objects, contents and unrelated metadata out.
-  const summary = (file: FileDigest) => ({
-    name: file.name,
-    size: file.size,
-    sha256: file.sha256,
-  });
   return {
     timestamp,
     algorithm: "SHA-256",
-    scope: "Local file comparison; not a live replica audit",
-    original: summary(original),
-    downloaded: summary(downloaded),
-    ...compareFileDigests(original, downloaded, expected),
+    scope: "Local file verification against stored object checksum",
+    file: { name: file.name, size: file.size, sha256: file.sha256 },
+    expected_hash: storedHash,
+    result: compareFileDigest(file, storedHash),
   };
 }

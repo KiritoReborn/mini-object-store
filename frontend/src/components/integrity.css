@@ -83,9 +83,6 @@
   user-select: all;
   overflow-wrap: anywhere;
 }
-.integrity-tool .integrity-expected p {
-  margin: 8px 0;
-}
 .integrity-tool .integrity-actions {
   display: flex;
   flex-wrap: wrap;
