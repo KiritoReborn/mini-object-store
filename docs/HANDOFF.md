@@ -79,3 +79,36 @@ The existing frontend changes add a local SHA-256 comparison tool to the object 
 The pre-existing `compose.controls.yaml` change retains `ARTAUD_DOCKER_PROJECT: cloud_project`. Controls therefore require that exact Compose project identity; a clone using another project name still needs matching configuration. No worker, recovery or controller storage behavior was changed for this publication. The ignored `.env`, worker-port override and local artifacts are excluded.
 
 Verification on 18 November: frontend unit tests passed **7 files / 45 tests**; `npm run build` passed TypeScript checking and the production build; controls Compose configuration and `git diff --check` passed. Changed source/generated assets were checked for the local credential and common credential patterns without printing values; no matches were found. No containers were operated. Browser, Linux and live acceptance checks were not rerun. The previously reviewed inspector stale-state/refresh issue and the local ignored worker-port exposure remain unresolved; this push request does not include those fixes.
+
+## macOS startup guide, 2026-11-18
+
+[START.md](../START.md) records local startup and owner access, optional worker Docker controls, the ngrok/Vercel connection, and shutdown that preserves data. The live `cloud_project` controller has the Docker socket mounted. Its authenticated demo endpoint reported controls enabled and all four worker containers running after the user applied the controls overlay. Both loopback dashboard URLs reach that same controller. The ngrok tunnel was checked separately and allowed Vercel requests. These are point-in-time observations.
+
+## Single-file integrity verification, 2026-11-18
+
+The object inspector now accepts one local file and compares its SHA-256 with the selected object's stored checksum. The original and a downloaded copy can each be checked through the same picker. The optional JSON report records one file and both checksums. The 128 MiB limit and cancellation handling are preserved. The frontend guide and macOS startup guide describe the new flow.
+
+All 39 frontend unit tests passed across seven files. TypeScript and the production build passed, and `controller/static` was regenerated. The browser tests were updated for the single-picker flow. Automatic approval review blocked the Playwright run because its configuration starts a frontend server under the earlier review restrictions. The rebuilt bundle is ready on disk. Installing it in the running Docker controller or on Vercel requires a separate deployment.
+
+## Assignment PDF check, 2026-11-19
+
+Reviewed all ten sections of the [assignment PDF](Mini_Distributed_Cloud_Object_Store.pdf) against `feature/extras` at `eaf9c9b`. Base Compose resolves one controller and four workers with separate named volumes. The required object fields, six client APIs, six internal routes and local startup instructions are present. The Docker images used for verification matched all tracked controller and worker files byte for byte and used the pinned dependency versions.
+
+- The full Linux Docker suite passed 314 tests with one opt-in live check skipped and one existing Starlette deprecation warning. The [live harness](../tests/test_end_to_end.py) ran separately with `--large` and passed all six required demonstrations. A 5,000,001-byte object produced six ordered chunks with two verified physical copies each across four workers. The run verified metadata edits, the worker2 stop/start and repair, intentional corruption with a forged sidecar, restart persistence, a 50 MB checksum roundtrip and physical deletion. All labelled test resources were removed.
+- Section 5.7 calls for JSON errors. A live download request with a malformed `Range` header returned `400 text/plain`. A range past the end of the object returned `416 text/plain`. Both responses come from the controller's file response.
+- Section 5.5 timing caveat confirmed live. Deleting with worker2 stopped returned 204 and hid the object immediately. The copy on worker2 remained on disk while it was stopped and was removed during rejoin. This matches the documented [deletion contract](../contracts/api-contract.md#public-endpoints-member-a).
+- Frontend unit tests passed 39 tests across seven files. The required demonstrations used a REST client against the isolated stack.
+
+## Demo replica state and fallback fix, 2026-11-19
+
+A live one-chunk, 285,300-byte PDF had replicas on worker2 and worker4. Its 17:54:19 IST download used worker2 after repair. Later, both demo flips succeeded while SQLite still recorded both copies as HEALTHY. The controller previously recorded only the injection observation, and live inventory skips already-HEALTHY records. Before restoration both workers returned 409 for the chunk. Reversing the known one-byte flip produced the original SQLite SHA-256. Both copies were restored via the existing checksum-checked worker PUT and verified by independent readback.
+
+The controller demo action now verifies another available replica under the existing object lock and marks the target CORRUPT after a successful worker acknowledgement. Explicit corrupt or missing responses update the replica record. The placement view refreshes after the action and disables the remaining copy's action while it lacks a recorded fallback. The existing recovery loop repairs acknowledged corruption.
+
+Verification passed 357 Linux tests with one opt-in live test skipped and one existing Starlette warning, plus 42 frontend unit tests, 43 Chromium tests, TypeScript and the production build. A separate labelled five-container run exercised the actual demo route, checksum-checked fallback, repair and JSON 503 with both disposable replicas damaged. Test resources were cleaned up. The controller source file and regenerated dashboard bundle were installed in the existing local controller container and the controller restarted. All four workers were readmitted with their original process start times, and both restored copies still matched the SQLite checksum. Future Compose builds use the updated checkout.
+
+## Demo can now corrupt both copies, 2026-11-19
+
+The user removed the last-readable-copy restriction and specified that recovery should run on its normal schedule. The controller and placement view let the owner confirm either healthy replica, including the last one for a chunk. Worker acknowledgements still mark the selected replica CORRUPT immediately. If both flips happen before repair, the object returns JSON `503 OBJECT_UNAVAILABLE` until it has a verified copy again.
+
+The focused API and browser regressions reproduced the previous restriction before the fix. The full suites passed 358 Linux tests with one opt-in live test skipped and one existing Starlette warning, 42 frontend unit tests and 43 Chromium tests. The production frontend build passed. A disposable five-container test confirmed that two public demo requests could corrupt both physical copies, producing JSON 503. It also verified a checksum-matching download and automatic repair for a single corrupt copy. The running local controller was updated and restarted, its served bundle was verified, and all four workers were readmitted with all five original objects still READY.
