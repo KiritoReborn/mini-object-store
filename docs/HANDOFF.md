@@ -1,5 +1,11 @@
 # Current combined project handoff
 
+## Current state — 2026-11-19
+
+Work continues on `feature/extras`. The owner can corrupt either replica of a chunk, including its last readable copy, while recovery runs on its normal schedule. The demo uses Compose project `cloud_project`, the controls overlay on all five services, and the owner key.
+
+Conditional downloads now honor the response ETag and Last-Modified validators. Offline verification passed 49 API tests and 361 tests across the backend suite, with the live test skipped and one existing deprecation warning. Earlier branch and demo decisions below are dated history.
+
 Read this first in Codex, Claude or a new chat. Latest user instructions override earlier planning history. Integration was merged into master through [PR #4](https://github.com/KiritoReborn/mini-object-store/pull/4), merge commit cfe2ecf3f25c3cdadb2c16dd3509b11a62e3722d. The workspace is on master; use git log/status for later documentation commits.
 
 User now wants one branch. The repository's default branch is named master; all A/B work is there. After fetching and verifying both feature heads were ancestors of master, feature/controller and feature/workers were deleted remotely, and the local feature/controller branch was removed. Only master remains locally/remotely; original teammate commits remain in its history. Continue directly on master unless the user changes this preference.

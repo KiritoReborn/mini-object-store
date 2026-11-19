@@ -39,8 +39,8 @@ _Real dashboard capture. Node status, file counts and placement reflect the conn
 ```sh
 git clone https://github.com/KiritoReborn/mini-object-store.git
 cd mini-object-store
-docker compose up --build -d
-docker compose ps
+docker compose -p cloud_project -f compose.yaml up --build -d
+docker compose -p cloud_project -f compose.yaml ps
 ```
 
 Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**. The controller serves the committed frontend build, so a separate frontend server is unnecessary. Interactive API docs are at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
@@ -51,24 +51,25 @@ A clean local checkout has no owner key configured. If your existing `.env` defi
 
 ### Windows helper and optional worker controls
 
-From the repository root in PowerShell:
+The controls overlay expects the Compose project name `cloud_project`. Use that name for every Compose command for this demo. For an existing stack, keep its original project name to select its volumes. From the repository root in PowerShell, set the project name for the helper:
 
 ```powershell
+$env:COMPOSE_PROJECT_NAME = 'cloud_project'
 .\scripts\Configure-Demo.ps1
 .\scripts\Start-Artaud.ps1 -DemoControls
 ```
 
 The first command creates a private owner key in the ignored `.env`, preserving existing settings. The second builds/starts the stack with optional Docker controls. Enter the value of `ARTAUD_API_KEY` in the dashboard; do not publish it or put it in a frontend build variable.
 
-The controls overlay mounts the Docker socket, which is privileged access. It permits only Start/Stop/Restart of the four identified project workers. Without the overlay, normal file operations and recovery still work. See the [demo and HTTPS setup guide](docs/DEMO.md).
+The controls overlay mounts the Docker socket, which is privileged access. The controller uses the socket for Docker Start/Stop/Restart of the four identified project workers. **Corrupt this copy** uses worker HTTP and requires the overlay on the controller and all four workers, plus the owner key. Without the overlay, normal file operations and recovery still work. See the [demo and HTTPS setup guide](docs/DEMO.md).
 
 ### Stop without removing stored data
 
 ```sh
-docker compose down
+docker compose -p cloud_project -f compose.yaml stop
 ```
 
-Named volumes survive normal Stop/Start and Compose shutdown. Keep the same Compose project name when starting again. **`docker compose down -v` deletes the project's stored volumes.** Application-driven recovery can still remove obsolete chunks from a persistent volume; persistence does not prevent intentional cleanup. [Docker volume lifecycle](https://docs.docker.com/engine/storage/volumes/#a-volumes-lifecycle)
+Named volumes survive normal Stop/Start and Compose shutdown. Keep the same Compose project name when starting again. Application-driven recovery can still remove obsolete chunks from a persistent volume; persistence does not prevent intentional cleanup. [Docker volume lifecycle](https://docs.docker.com/engine/storage/volumes/#a-volumes-lifecycle)
 
 ## Architecture
 
@@ -117,7 +118,7 @@ Base URL for local use: `http://127.0.0.1:8000`.
 | `GET`    | `/api/v1/objects/{id}`          | `200` — original verified bytes                                 |
 | `GET`    | `/api/v1/objects/{id}/metadata` | `200` — metadata, ordered chunks and replica records            |
 | `PATCH`  | `/api/v1/objects/{id}/metadata` | `200` — merge custom metadata                                   |
-| `DELETE` | `/api/v1/objects/{id}`          | `204` — logical deletion and reachable-copy cleanup             |
+| `DELETE` | `/api/v1/objects/{id}`          | `204` — object hidden and copy deletion attempted             |
 | `GET`    | `/api/v1/objects`               | `200` — READY objects                                           |
 
 Example against a clean local profile, using an existing `sample.bin`:
@@ -191,6 +192,8 @@ Member A owns the controller/API/database and frontend; Member B owns worker sto
 ## Scope and limitations
 
 This is an educational distributed-systems project with a working demo. The single controller, SQLite database and physical PC remain failure points. Replication is fixed at two; reads verify bytes, while the dashboard is an observation of recorded state rather than a continuous full-disk audit. Activity is bounded and process-local, and detailed repair-transfer animation requires explicit recovery events.
+
+`DELETE` returns `204` after the controller hides the object and attempts to delete its copies. Subsequent reads return `404`. Inventory reconciliation retries leftover copies, including on offline workers after they rejoin. A returning worker may have surplus copies removed once recovery verifies two other healthy copies.
 
 There is no S3-compatible protocol, multi-user IAM, versioning, erasure coding, resumable upload, multi-region failover or production availability SLA. Containers currently run as root, each worker volume requires a single worker process, and the Python dependency set includes test tools with some unpinned transitive dependencies. Worker chunk/sidecar commits can be interrupted between files; verified reads reject inconsistent pairs and recovery can repair them from a good copy.
 

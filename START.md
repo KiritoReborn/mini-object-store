@@ -4,7 +4,7 @@ Use the local dashboard for everyday work. Vercel and ngrok give you HTTPS acces
 
 ## 1. Prepare Docker and the owner key
 
-Open Docker Desktop and run the commands below from the repository root, where `compose.yaml` lives. These commands use the current Compose project name, `cloud_project`. Keep the existing project name when restarting, because it determines which named volumes Compose uses. If your stack was started under a different name, use its existing name and make sure `ARTAUD_DOCKER_PROJECT` in the controls overlay matches it.
+Open Docker Desktop and run the commands below from the repository root, where `compose.yaml` lives. These commands use `-p cloud_project` on every Compose invocation because `compose.controls.yaml` expects that project name. Keep the existing project name when restarting, because it determines which named volumes Compose uses. If your stack was started under a different name, use its existing name and make sure `ARTAUD_DOCKER_PROJECT` in the controls overlay matches it.
 
 For Vercel or Docker worker controls, configure the ignored `.env` in the repository root. Reuse the key you already have. For a new `.env`, run `openssl rand -hex 32` in Terminal and use its output as the value on the first line below.
 
@@ -23,13 +23,13 @@ This command starts the controller and all four workers with the normal dashboar
 docker compose -p cloud_project -f compose.yaml up --build -d
 ```
 
-Use the controls overlay if you want the worker **Start**, **Stop**, and **Restart** buttons on first startup.
+For **Corrupt this copy**, apply the controls overlay to the controller and all four workers and enter the owner key in **Connection settings**. Use this command for either a new or an existing demo stack.
 
 ```sh
 docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up --build -d
 ```
 
-On an **already running** stack, target the controller to enable the buttons.
+On an **already running base stack**, applying the overlay only to the controller enables the Docker **Start**, **Stop**, and **Restart** actions. Use the all-service command above for the corruption demo.
 
 ```sh
 docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up -d --no-deps controller
