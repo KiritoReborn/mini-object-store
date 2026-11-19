@@ -263,6 +263,13 @@ def get_chunks_for_repair() -> list[dict]:
             ORDER BY c.object_id, c.chunk_index""")]
 
 
+def get_healthy_chunks_for_worker(worker_id: str) -> list[dict]:
+    with connection() as conn:
+        return [dict(row) for row in conn.execute("""SELECT c.object_id, c.chunk_id
+            FROM replicas r JOIN chunks c USING(chunk_id) JOIN objects o USING(object_id)
+            WHERE r.worker_id=? AND r.state='HEALTHY' AND o.status='READY'""", (worker_id,))]
+
+
 def _replicas(conn, chunk_id: str) -> list[dict]:
     return [dict(row) for row in conn.execute("""SELECT r.worker_id, r.state,
         r.last_verified_at, w.base_url, w.status AS worker_status, w.last_heartbeat

@@ -292,18 +292,30 @@ async def _inventory_chunk(worker_id: str, chunk_id: str) -> bool:
         return True
 
 
-async def _missing_inventory_rows(worker_id: str, inventory: set[str]) -> bool:
+async def _missing_inventory_rows(worker_id: str, inventory: set[str], *, joining: bool) -> bool:
     complete = True
-    for snapshot in await _db(db.get_chunks_for_repair):
+    if joining:
+        snapshots = await _db(db.get_chunks_for_repair)
+    else:
+        snapshots = await _db(db.get_healthy_chunks_for_worker, worker_id)
+    for snapshot in snapshots:
         if snapshot["chunk_id"] in inventory:
             continue
         try:
             async with object_lock(snapshot["object_id"]):
                 chunk = await _ready_chunk(snapshot["object_id"], snapshot["chunk_id"])
-                if chunk is not None:
-                    rows = await _db(db.get_replicas, chunk["chunk_id"])
-                    if any(r["worker_id"] == worker_id for r in rows):
-                        await _mark_bad(chunk, worker_id, "MISSING")
+                if chunk is None:
+                    continue
+                replica = next((r for r in chunk["replicas"] if r["worker_id"] == worker_id), None)
+                if replica is None:
+                    continue
+                if joining:
+                    await _mark_bad(chunk, worker_id, "MISSING")
+                elif replica["state"] == "HEALTHY":
+                    # A live worker may receive a copy after listing its inventory.
+                    result = await _fetch_verified(worker_id, chunk)
+                    if result.state:
+                        await _mark_bad(chunk, worker_id, result.state)
         except Exception:
             complete = False
             log.exception("INVENTORY_MISSING_CHECK_FAILED chunk_id=%s worker_id=%s", snapshot["chunk_id"], worker_id)
@@ -330,11 +342,13 @@ async def _reconcile_worker(worker: dict, *, joining: bool) -> None:
         except Exception:
             complete = False
             log.exception("INVENTORY_CHUNK_FAILED chunk_id=%s worker_id=%s", chunk_id, worker_id)
-    if joining and complete:
+    if not joining:
+        await _missing_inventory_rows(worker_id, inventory, joining=False)
+    elif complete:
         current = await _worker(worker_id)
         if current is None or current["base_url"] != worker["base_url"] or current["status"] != "JOINING":
             return
-        if not await _missing_inventory_rows(worker_id, inventory):
+        if not await _missing_inventory_rows(worker_id, inventory, joining=True):
             return
         # Heartbeats may age or registrations may change during a large inventory.
         current = await _worker(worker_id)
