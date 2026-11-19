@@ -132,7 +132,7 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/objects
 
 The example uses POSIX shell quoting. In Windows PowerShell use `curl.exe`; see the [controller guide](docs/CONTROLLER.md) for a native example. When an owner key is configured, API calls require `X-Artaud-Key`. Administrative mutations also require `X-Artaud-Admin: 1`; the frontend supplies it after explicit user confirmation.
 
-Errors use `{"error":"CODE","message":"description"}`. Invalid input returns `400`, unknown objects `404`, conflicts `409`, unexpected faults `500` and unavailable required storage `503`. Optional access/origin checks also return `401`/`403`. PATCH accepts `{"metadata":{...}}`; system fields cannot be overwritten, omitted keys are preserved, and `null` is a stored value rather than deletion.
+Errors use `{"error":"CODE","message":"description"}`. Invalid input returns `400`, unknown objects `404`, conflicts `409`, unexpected faults `500` and unavailable required storage `503`. An applicable malformed range returns JSON `400 INVALID_RANGE`. An applicable out-of-bounds range returns JSON `416 RANGE_NOT_SATISFIABLE` with `Content-Range`. A mismatched `If-Range` requests the full verified download. Optional access/origin checks also return `401`/`403`. PATCH accepts `{"metadata":{...}}`; system fields cannot be overwritten, omitted keys are preserved, and `null` is a stored value rather than deletion.
 
 See the [complete HTTP contract](contracts/api-contract.md) for worker routes, metadata limits, extensions and deletion semantics.
 

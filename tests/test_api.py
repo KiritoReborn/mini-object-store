@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -90,6 +91,131 @@ def test_binary_upload_download_and_two_distinct_replicas(system):
     assert downloaded.content == data
     assert downloaded.headers["content-type"] == "application/octet-stream"
     assert not list((tmp / "downloads").iterdir())
+
+
+@pytest.mark.parametrize("data,range_header,status,code", [
+    (b"abcdef", "items=0-2", 400, "INVALID_RANGE"),
+    (b"abcdef", "bytes=garbage", 400, "INVALID_RANGE"),
+    (b"abcdef", "bytes=4-2", 400, "INVALID_RANGE"),
+    (b"abcdef", "bytes", 400, "INVALID_RANGE"),
+    (b"abcdef", "bytes=6-", 416, "RANGE_NOT_SATISFIABLE"),
+    (b"abcdef", "bytes=200-300", 416, "RANGE_NOT_SATISFIABLE"),
+    (b"abcdef", "bytes=-0", 416, "RANGE_NOT_SATISFIABLE"),
+    (b"", "bytes=0-", 416, "RANGE_NOT_SATISFIABLE"),
+    (b"", "bytes=-1", 416, "RANGE_NOT_SATISFIABLE"),
+])
+def test_invalid_download_range_returns_json_before_preparing_file(
+    system, data, range_header, status, code
+):
+    from controller import objects
+
+    client, state, _, tmp = system
+    obj = upload(client, data).json()
+    path = f'/api/v1/objects/{obj["object_id"]}'
+    state["history"].clear()
+
+    with patch.object(objects, "_prepare_download", wraps=objects._prepare_download) as prepare:
+        response = client.get(path, headers={"Range": range_header})
+    assert response.status_code == status
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["error"] == code
+    assert response.json()["message"]
+    if status == 416:
+        assert response.headers["content-range"] == f"bytes */{len(data)}"
+    prepare.assert_not_awaited()
+    assert state["history"] == []
+    assert not list((tmp / "downloads").iterdir())
+    assert obj["object_id"] not in objects._locks
+    following = client.get(path)
+    assert following.status_code == 200 and following.content == data
+    assert following.headers["x-object-sha256"] == hashlib.sha256(data).hexdigest()
+
+
+@pytest.mark.parametrize("data,range_header,expected,content_range", [
+    (b"abcdef", "bytes=1-3", b"bcd", "bytes 1-3/6"),
+    (b"abcdef", "bytes=4-", b"ef", "bytes 4-5/6"),
+    (b"abcdef", "bytes=-2", b"ef", "bytes 4-5/6"),
+    (b"abcdef", "bytes=-20", b"abcdef", "bytes 0-5/6"),
+    (b"abcdef", "BYTES = 1 - 2 ", b"bc", "bytes 1-2/6"),
+    (b"abcdef", "bytes=garbage,1-2", b"bc", "bytes 1-2/6"),
+    (b"a", "bytes=0-", b"a", "bytes 0-0/1"),
+])
+def test_valid_download_range_preserves_file_response(system, data, range_header, expected, content_range):
+    client, _, _, _ = system
+    obj = upload(client, data).json()
+    path = f'/api/v1/objects/{obj["object_id"]}'
+    response = client.get(path, headers={"Range": range_header})
+    assert response.status_code == 206
+    assert response.content == expected
+    assert response.headers["content-range"] == content_range
+    assert response.headers["content-length"] == str(len(expected))
+    assert response.headers["content-type"] == obj["content_type"]
+    assert response.headers["x-object-sha256"] == obj["sha256"]
+
+
+def test_multi_range_download_and_if_range_keep_file_response_semantics(system):
+    from email import policy
+    from email.parser import BytesParser
+
+    client, _, _, _ = system
+    data = b"abcdef"
+    obj = upload(client, data).json()
+    path = f'/api/v1/objects/{obj["object_id"]}'
+    response = client.get(path, headers={"Range": "bytes=0-1,4-5", "If-Range": f'"{obj["sha256"]}"'})
+    assert response.status_code == 206
+    mime_header = response.headers["content-type"]
+    assert mime_header.startswith("multipart/byteranges;")
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {mime_header}\r\n\r\n".encode() + response.content
+    )
+    assert [(part["Content-Range"], part.get_payload(decode=True)) for part in message.iter_parts()] == [
+        ("bytes 0-1/6", b"ab"), ("bytes 4-5/6", b"ef")]
+    full = client.get(path, headers={"Range": "bytes=0-1", "If-Range": '"older"'})
+    assert full.status_code == 200 and full.content == data
+    assert client.head(path).status_code == 405
+
+
+@pytest.mark.parametrize("range_header,validator,status,code", [
+    ("bytes=99-", '"older"', 416, "RANGE_NOT_SATISFIABLE"),
+    ("bytes=99-", "Wed, 21 Oct 2015 07:28:00 GMT", 416, "RANGE_NOT_SATISFIABLE"),
+    ("items=0-1", '"older"', 400, "INVALID_RANGE"),
+])
+def test_stale_if_range_ignores_invalid_range(system, range_header, validator, status, code):
+    from controller import objects
+
+    client, _, _, tmp = system
+    data = b"abcdef"
+    obj = upload(client, data).json()
+    path = f'/api/v1/objects/{obj["object_id"]}'
+    full = client.get(path, headers={"Range": range_header, "If-Range": validator})
+    assert full.status_code == 200
+    assert full.content == data
+    assert full.headers["x-object-sha256"] == hashlib.sha256(data).hexdigest()
+    assert "content-range" not in full.headers
+    assert not list((tmp / "downloads").iterdir())
+    assert obj["object_id"] not in objects._locks
+
+    for condition in ({}, {"If-Range": full.headers["etag"]}):
+        error = client.get(path, headers={"Range": range_header, **condition})
+        assert error.status_code == status
+        assert error.headers["content-type"] == "application/json"
+        assert error.json()["error"] == code
+        if status == 416:
+            assert error.headers["content-range"] == "bytes */6"
+        assert not list((tmp / "downloads").iterdir())
+        assert obj["object_id"] not in objects._locks
+
+
+def test_missing_and_deleted_objects_take_precedence_over_invalid_ranges(system):
+    client, _, _, _ = system
+    obj = upload(client).json()
+    deleted_path = f'/api/v1/objects/{obj["object_id"]}'
+    assert client.delete(deleted_path).status_code == 204
+    for path in ("/api/v1/objects/unknown", deleted_path):
+        for range_header in ("not a range", "bytes=999999-"):
+            response = client.get(path, headers={"Range": range_header})
+            assert response.status_code == 404
+            assert response.json()["error"] == "OBJECT_NOT_FOUND"
 
 
 def test_empty_file_needs_no_workers_and_has_empty_checksum(system):

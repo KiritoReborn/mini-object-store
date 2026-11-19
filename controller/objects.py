@@ -18,7 +18,7 @@ import anyio
 import httpx
 from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse, MalformedRangeHeader, RangeNotSatisfiable
 
 from . import config, database as db, telemetry
 from .models import MetadataPatch, StoreError, parse_metadata, safe_content_type, safe_filename
@@ -262,11 +262,32 @@ def remove_download(path: Path) -> None:
         log.exception("TEMP_CLEANUP_FAILED file=%s", path.name)
 
 
+class DownloadRangeError(Exception):
+    def __init__(self, response: JSONResponse):
+        self.response = response
+
+
 class VerifiedFileResponse(FileResponse):
     """Release verified temp data even if sending the response is interrupted."""
+    @classmethod
+    def _parse_range_header(cls, http_range: str, file_size: int) -> list[tuple[int, int]]:
+        try:
+            return super()._parse_range_header(http_range, file_size)
+        except MalformedRangeHeader as exc:
+            raise DownloadRangeError(JSONResponse(
+                {"error": "INVALID_RANGE", "message": exc.content}, status_code=400,
+            )) from exc
+        except RangeNotSatisfiable as exc:
+            raise DownloadRangeError(JSONResponse(
+                {"error": "RANGE_NOT_SATISFIABLE", "message": "Requested range is outside the object"},
+                status_code=416, headers={"Content-Range": f"bytes */{exc.max_size}"},
+            )) from exc
+
     async def __call__(self, scope, receive, send):
         try:
             await super().__call__(scope, receive, send)
+        except DownloadRangeError as exc:
+            await exc.response(scope, receive, send)
         finally:
             with anyio.CancelScope(shield=True):
                 await _run_sync(remove_download, Path(self.path))
@@ -325,10 +346,22 @@ async def patch_metadata(object_id: str, body: MetadataPatch):
         return public_manifest(await _run_sync(ready_manifest, object_id))
 
 
-@router.get("/{object_id}")
+@router.get("/{object_id}", responses={
+    400: {"description": "INVALID_RANGE: malformed Range header"},
+    416: {"description": "RANGE_NOT_SATISFIABLE: no bytes at the requested offset",
+          "headers": {"Content-Range": {"schema": {"type": "string"}, "example": "bytes */100"}}},
+})
 async def download_object(request: Request, object_id: str):
     async with object_lock(object_id):
         obj = await _run_sync(ready_manifest, object_id)
+        range_header = request.headers.get("range")
+        # FileResponse evaluates If-Range against the actual response validators
+        # before parsing. Its Last-Modified comes from the prepared file's stat.
+        if range_header is not None and "if-range" not in request.headers:
+            try:
+                VerifiedFileResponse._parse_range_header(range_header, obj["size"])
+            except DownloadRangeError as exc:
+                return exc.response
         try:
             path = await _prepare_download(request.app.state.http, obj)
         except OSError as exc:

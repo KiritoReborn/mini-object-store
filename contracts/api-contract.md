@@ -7,7 +7,7 @@ One local controller at port 8000; four worker listeners at port 8001. Internal 
 | Method | Route | Body / response | Success |
 |---|---|---|---|
 | POST | `/api/v1/objects` | multipart: required `file`, optional `metadata` JSON string; returns READY object metadata including ID/hash/count/locations | 201 |
-| GET | `/api/v1/objects/{id}` | Verified original bytes, Content-Type, safe Content-Disposition, X-Object-SHA256 and checksum ETag | 200 |
+| GET | `/api/v1/objects/{id}` | Verified original bytes, Content-Type, safe Content-Disposition, X-Object-SHA256 and checksum ETag | 200 or 206 for a served range |
 | GET | `/api/v1/objects/{id}/metadata` | System/custom metadata, ordered chunk index/size/hash, workers and replica states | 200 |
 | PATCH | `/api/v1/objects/{id}/metadata` | `{"metadata":{"course":"CC","reviewed":true}}`; merge custom keys; returns updated metadata | 200 |
 | DELETE | `/api/v1/objects/{id}` | Logical removal and reachable physical cleanup; no response body | 204 |
@@ -18,6 +18,8 @@ Custom metadata must be a JSON object with finite JSON values, encoded size at m
 Object IDs are UUID4; chunk IDs are `<uuid>_<zero-based-index>`; default chunk size is 1000000 bytes and replication factor is 2 on distinct workers. Empty objects have zero chunks and the SHA-256 of empty bytes. Object states UPLOADING/FAILED/DELETING are hidden from all public reads.
 
 An upload returns 201 only after every chunk has two acknowledged hash-valid writes to eligible workers and the final metadata commit succeeds. Worker availability can change afterward. A download verifies every chunk and the entire object into controller-owned temporary storage before returning binary success; unavailable good copies return JSON 503. A connection interruption during file transmission is still a transport error.
+
+Downloads check object existence first. Without `If-Range`, the controller validates `Range` against the stored size before preparing the download. With `If-Range`, Starlette compares the validator to the response's strong ETag or `Last-Modified`. A mismatch returns the full verified body. Applicable malformed and unsatisfiable ranges return JSON `400 INVALID_RANGE` and `416 RANGE_NOT_SATISFIABLE`, respectively, with `Content-Range: bytes */<size>` on `416`.
 
 DELETE of unknown/already-deleted object returns 404. Offline bytes are removed by B's eventual reconciliation; a 204 does not claim an offline disk has already been erased. No public upload-idempotency key or range-upload protocol is implemented.
 
