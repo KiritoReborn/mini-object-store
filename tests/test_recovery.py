@@ -81,6 +81,8 @@ async def cluster(monkeypatch):
     for name, function in {
         "get_workers": workers, "get_replicas": replicas,
         "get_object_manifest": manifest, "get_chunks_for_repair": chunks,
+        "get_healthy_chunks_for_worker": lambda wid: [
+            c for c in chunks() if state.replicas.get((c["chunk_id"], wid)) == "HEALTHY"],
         "known_chunk_ids": known, "transition_worker": transition,
         "get_worker_registration": lambda wid: state.registrations.get(wid),
         "complete_worker_admission": admit,
@@ -805,6 +807,44 @@ async def test_successful_put_with_wrong_readback_is_not_recorded_healthy(cluste
     await recovery.run_once()
     assert cluster.healthy(chunk) == {"worker1", "worker3"}
     assert (chunk["chunk_id"], "worker2") not in cluster.state.replicas
+
+
+async def test_live_inventory_detects_and_repairs_missing_copy_without_download(cluster):
+    chunk = cluster.add_chunk(("worker1", "worker2"))
+    cid = chunk["chunk_id"]
+    del cluster.state.data["worker2", cid]
+    cluster.runtime.next_inventory = cluster.clock.tick
+
+    await recovery.reconcile_joining_workers()
+    assert cluster.state.replicas[cid, "worker2"] == "MISSING"
+    assert cluster.state.workers["worker2"]["status"] == "ALIVE"
+    assert ("GET", "worker1", cid) not in cluster.state.history
+
+    await recovery.repair_pass()
+    holders = cluster.healthy(chunk)
+    assert len(holders) == 2
+    for wid in holders:
+        assert hashlib.sha256(cluster.state.data[wid, cid]).hexdigest() == chunk["sha256"]
+
+
+@pytest.mark.parametrize("read_status", [200, 503])
+async def test_live_inventory_confirms_omission_before_marking_copy_missing(cluster, read_status):
+    oid = str(uuid4())
+    cid = f"{oid}_0"
+
+    def upload_after_snapshot(request):
+        cluster.add_chunk(("worker1", "worker2"), oid=oid)
+        return httpx.Response(200, json={"worker_id": "worker2", "chunks": []})
+
+    cluster.state.faults["GET", "worker2", "chunks"] = upload_after_snapshot
+    if read_status == 503:
+        cluster.state.faults["GET", "worker2", cid] = httpx.Response(503)
+    cluster.runtime.next_inventory = cluster.clock.tick
+    await recovery.reconcile_joining_workers()
+
+    assert ("GET", "worker2", cid) in cluster.state.history
+    assert cluster.state.replicas[cid, "worker2"] == "HEALTHY"
+    assert all(method == "GET" for method, _, _ in cluster.state.history)
 
 
 async def test_periodic_live_inventory_collects_late_orphan_and_surplus(cluster):

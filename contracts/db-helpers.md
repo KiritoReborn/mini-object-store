@@ -14,6 +14,7 @@ Authoritative schema: [`controller/schema.sql`](../controller/schema.sql). Conne
 | `set_worker_state(worker_id, state) -> None` | State update; unknown ID is a no-op |
 | `transition_worker(worker_id, expected_heartbeat, state) -> bool` | Compare-and-set state only when heartbeat still matches the observed value; use for stale-state decisions |
 | `get_chunks_for_repair() -> list[dict]` | All chunks of READY objects, ordered by object_id/index; authoritative size/hash |
+| `get_healthy_chunks_for_worker(worker_id) -> list[dict]` | Returns `object_id` and `chunk_id` for each HEALTHY replica of a READY object recorded on this worker. Live inventory uses these as candidates for verification. |
 | `get_replicas(chunk_id) -> list[dict]` | Replica records joined to worker URL/state/timestamp; absent chunk -> empty list |
 | `upsert_replica(chunk_id, worker_id, state) -> None` | Idempotent insert/update; HEALTHY sets last_verified_at; other states clear it; unknown parent IDs fail FK validation |
 | `set_replica_state(chunk_id, worker_id, state) -> None` | Update existing row, same timestamp rule; unknown pair is a no-op |
