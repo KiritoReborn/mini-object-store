@@ -53,4 +53,5 @@ def overview(request: Request):
         "replication_factor": config.REPLICATION_FACTOR,
         "chunk_size": config.CHUNK_SIZE,
         "recovery_available": request.app.state.recovery_available,
+        **({"fault_injection_enabled": True} if config.DEMO_FAULT_INJECTION and config.API_KEY else {}),
     }

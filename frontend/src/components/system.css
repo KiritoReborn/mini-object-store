@@ -570,6 +570,14 @@
   background: currentColor;
   border-radius: 50%;
 }
+.replica-fault-action {
+  display: block;
+  margin-top: 4px;
+  font-size: inherit;
+}
+.replica-fault-chunk {
+  overflow-wrap: anywhere;
+}
 .copy-healthy {
   color: var(--green);
 }

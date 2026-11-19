@@ -7,9 +7,17 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { request } from "../api";
+import { hasOwnerKey } from "../connection";
+import {
+  faultCapability,
+  replicaFaultState,
+  requestConfirmedReplicaFault,
+  type FaultTarget,
+} from "../fault-injection";
 import { bytes, errorMessage } from "../format";
 import { replicaLabel, saveJson } from "../system";
-import type { ObjectDetails, Overview, StoredObject } from "../types";
+import type { Notify, ObjectDetails, Overview, StoredObject } from "../types";
+import { Dialog } from "./Dialog";
 import { FileIcon } from "./FileIcon";
 
 export function ObjectPlacement({
@@ -21,6 +29,7 @@ export function ObjectPlacement({
   onObjectChange,
   onInspect,
   onHighlight,
+  notify,
   pollInterval,
 }: {
   objects: StoredObject[];
@@ -31,6 +40,7 @@ export function ObjectPlacement({
   onObjectChange: (id: string) => void;
   onInspect: (object: StoredObject) => void;
   onHighlight: (workers: string[] | null) => void;
+  notify: Notify;
   pollInterval: number;
 }) {
   const [details, setDetails] = useState<ObjectDetails | null>(null);
@@ -40,6 +50,9 @@ export function ObjectPlacement({
   const [refresh, setRefresh] = useState(0);
   const [selectedChunk, setSelectedChunk] = useState<string | null>(null);
   const [manifestTime, setManifestTime] = useState<string | null>(null);
+  const [fault, setFault] = useState<FaultTarget | null>(null);
+  const [faultBusy, setFaultBusy] = useState(false);
+  const [faultError, setFaultError] = useState("");
   const selected = objects.find((object) => object.object_id === objectId);
   useEffect(() => {
     setDetails(null);
@@ -47,6 +60,7 @@ export function ObjectPlacement({
     setPage(0);
     setSelectedChunk(null);
     setManifestTime(null);
+    setFault(null);
     onHighlight(null);
   }, [objectId, onHighlight]);
   useEffect(() => {
@@ -108,6 +122,45 @@ export function ObjectPlacement({
   const currentPage = Math.min(page, pages - 1);
   const chunks =
     validDetails?.chunks.slice(currentPage * 8, currentPage * 8 + 8) ?? [];
+  const showFaults = faultCapability(
+    overview?.fault_injection_enabled,
+    hasOwnerKey(),
+  );
+  const faultBlocked = stale || paused || !!error || loading || faultBusy;
+  const confirmedChunk = fault
+    ? validDetails?.chunks.find((chunk) => chunk.chunk_id === fault.chunkId)
+    : undefined;
+  const confirmedReplica = confirmedChunk?.replicas.find(
+    (replica) => replica.worker_id === fault?.workerId,
+  );
+  const confirmState = replicaFaultState(
+    showFaults,
+    confirmedReplica?.state,
+    workers.some((worker) => worker.worker_id === fault?.workerId && worker.available),
+    faultBlocked,
+  );
+
+  async function performFault() {
+    const pending = requestConfirmedReplicaFault(fault, confirmState);
+    if (!pending || !fault) return;
+    setFaultBusy(true);
+    setFaultError("");
+    try {
+      await pending;
+      setFault(null);
+      notify(
+        `Replica marked corrupt on ${fault.workerId}. Download the file to check whether it is still readable.`,
+        "success",
+      );
+    } catch (error) {
+      setFaultError(errorMessage(error));
+    } finally {
+      setLoading(true);
+      setRefresh((value) => value + 1);
+      setFaultBusy(false);
+    }
+  }
+
   return (
     <section
       className="system-section placement-section"
@@ -260,6 +313,12 @@ export function ObjectPlacement({
                               stale || !!error,
                             )
                           : "No recorded copy";
+                        const faultState = replicaFaultState(
+                          showFaults,
+                          replica?.state,
+                          worker.available,
+                          faultBlocked,
+                        );
                         return (
                           <td key={worker.worker_id}>
                             <span
@@ -268,6 +327,22 @@ export function ObjectPlacement({
                               <i />
                               {label}
                             </span>
+                            {faultState !== "hidden" && (
+                              <button
+                                className="text-button replica-fault-action"
+                                aria-label={`Corrupt this copy on ${worker.worker_id} for chunk ${chunk.index + 1}`}
+                                disabled={faultState !== "ready"}
+                                onClick={() => {
+                                  setFaultError("");
+                                  setFault({
+                                    chunkId: chunk.chunk_id,
+                                    workerId: worker.worker_id,
+                                  });
+                                }}
+                              >
+                                Corrupt this copy
+                              </button>
+                            )}
                           </td>
                         );
                       })}
@@ -310,6 +385,50 @@ export function ObjectPlacement({
             </div>
           )}
         </>
+      )}
+      {showFaults && fault && (
+        <Dialog
+          title="Corrupt this copy?"
+          className="worker-dialog"
+          alert
+          closeDisabled={faultBusy}
+          onClose={() => {
+            if (!faultBusy) setFault(null);
+          }}
+        >
+          <h2>Corrupt this copy?</h2>
+          <p>
+            This changes one stored byte of the chunk below on{" "}
+            <strong>{fault.workerId}</strong> for the demonstration. If this is
+            the last readable copy, downloads will fail until a verified copy
+            is restored.
+          </p>
+          <p className="replica-fault-chunk">
+            <code>{fault.chunkId}</code>
+          </p>
+          {faultError && (
+            <p className="error-text" role="alert">
+              {faultError}
+            </p>
+          )}
+          <div className="dialog-actions">
+            <button
+              className="button secondary"
+              autoFocus
+              disabled={faultBusy}
+              onClick={() => setFault(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="button destructive"
+              disabled={confirmState !== "ready"}
+              onClick={() => void performFault()}
+            >
+              {faultBusy ? "Applying fault…" : "Corrupt this copy"}
+            </button>
+          </div>
+        </Dialog>
       )}
     </section>
   );

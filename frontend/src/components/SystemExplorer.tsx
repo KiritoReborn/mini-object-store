@@ -184,6 +184,7 @@ export function SystemExplorer({
         onObjectChange={setObjectId}
         onInspect={onInspect}
         onHighlight={onHighlight}
+        notify={notify}
       />
       <div className="system-lower-grid">
         <WorkerManager

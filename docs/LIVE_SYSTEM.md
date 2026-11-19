@@ -38,6 +38,7 @@ Kinds: `transfer_started`, `transfer_completed`, `transfer_failed`, `object_read
 - Each worker attempt/retry gets a distinct transfer ID. A write completes only with the expected worker acknowledgement; a read completes only after expected size/hash verification. Completion describes worker bytes, not browser save or final object publication. Cancellation/partial-body/network failures terminate the attempt as unsuccessful.
 - Worker/replica/object state observations publish only after successful DB commits. Unchanged worker state and heartbeat refreshes do not flood the journal. A replica record removed explicitly has null state; an object cascade deletion is represented by object_deleted, not per-copy physical deletion claims. Abandoned upload cleanup does not masquerade as a user deletion.
 - Telemetry publication is best effort and cannot determine storage success. Existing DB helper signatures remain unchanged.
+- `fault_injected` records a worker's acknowledgement of the demo byte flip, with object, chunk and worker IDs. The controller commits the target as CORRUPT after acknowledgement. If a verified source is available, normal recovery can publish a subsequent restoration.
 
 ## Integration for Member B
 

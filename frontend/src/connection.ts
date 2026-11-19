@@ -33,6 +33,9 @@ export function backendOrigin(): string {
 export function apiUrl(path: string): string {
   return backendOrigin() + path;
 }
+export function hasOwnerKey(): boolean {
+  return accessKey.length > 0;
+}
 export function connectionHeaders(): Record<string, string> {
   return {
     ...(accessKey ? { "X-Artaud-Key": accessKey } : {}),

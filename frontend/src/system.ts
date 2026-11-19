@@ -57,6 +57,7 @@ export function eventLabel(event: ActivityEvent): string {
         repair_started: "Repair started",
         repair_completed: "Repair completed",
         repair_failed: "Repair unsuccessful",
+        fault_injected: "Demo corruption injected",
       } as Record<string, string>
     )[event.kind] ?? event.kind.replaceAll("_", " ")
   );

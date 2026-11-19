@@ -132,6 +132,26 @@ def delete_chunk(chunk_id: str):
     return Response(status_code=204)
 
 
+@app.post("/internal/demo/corrupt/{chunk_id:path}")
+def corrupt_chunk(chunk_id: str, request: Request):
+    if not config.ENABLE_FAULT_INJECTION:
+        raise HTTPException(status_code=404)
+    if not storage.valid_id(chunk_id):
+        return err(400, "INVALID_CHUNK_ID", "chunk id must be <uuid>_<index>", chunk_id)
+    if request.headers.get("X-Artaud-Worker-ID", config.WORKER_ID) != config.WORKER_ID:
+        return err(404, "WRONG_WORKER", "this is not the requested worker", chunk_id)
+    state, size = storage.inject_fault(chunk_id)
+    if state == "missing":
+        return err(404, "CHUNK_NOT_FOUND", "no such chunk on this worker", chunk_id)
+    if state == "corrupt":
+        return err(409, "CHUNK_CORRUPTED", "stored chunk failed verification", chunk_id)
+    if state == "empty":
+        return err(409, "CHUNK_EMPTY", "an empty chunk has no byte to flip", chunk_id)
+    log.warning("FAULT_INJECTED worker=%s chunk=%s", config.WORKER_ID, chunk_id)
+    return {"chunk_id": chunk_id, "worker_id": config.WORKER_ID, "offset": 0,
+            "size": size, "action": "corrupted"}
+
+
 @app.get("/internal/workers/{worker_id}/chunks")
 def list_chunks(worker_id: str):
     if worker_id != config.WORKER_ID:

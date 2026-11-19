@@ -52,6 +52,110 @@ def compute_sha256(data: bytes) -> str:
 VALID_CHUNK_ID = "550e8400-e29b-41d4-a716-446655440000_0"
 
 
+def test_demo_fault_disabled_returns_json_404(client, monkeypatch):
+    monkeypatch.setattr(config, "ENABLE_FAULT_INJECTION", False, raising=False)
+    response = client.post(f"/internal/demo/corrupt/{VALID_CHUNK_ID}")
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"error": "NOT_FOUND", "message": "Not Found"}
+
+
+@pytest.fixture
+def demo_fault(monkeypatch):
+    monkeypatch.setattr(config, "ENABLE_FAULT_INJECTION", True, raising=False)
+    return f"/internal/demo/corrupt/{VALID_CHUNK_ID}"
+
+
+def test_demo_fault_changes_one_byte_and_put_repairs_it(client, demo_fault, caplog):
+    data = b"demo payload"
+    sha = compute_sha256(data)
+    chunk_url = f"/internal/chunks/{VALID_CHUNK_ID}"
+    assert client.put(chunk_url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
+    sidecar = storage.sha_path(VALID_CHUNK_ID)
+    original_sidecar = sidecar.read_bytes(), sidecar.stat().st_mtime_ns
+    wrong_worker = client.post(demo_fault, headers={"X-Artaud-Worker-ID": "other-worker"})
+    assert wrong_worker.status_code == 404 and wrong_worker.json()["error"] == "WRONG_WORKER"
+    assert storage.chunk_path(VALID_CHUNK_ID).read_bytes() == data
+    response = client.post(demo_fault)
+    assert response.status_code == 200
+    assert response.json() == {
+        "chunk_id": VALID_CHUNK_ID, "worker_id": config.WORKER_ID, "offset": 0,
+        "size": len(data), "action": "corrupted",
+    }
+    assert storage.chunk_path(VALID_CHUNK_ID).read_bytes() == bytes([data[0] ^ 1]) + data[1:]
+    assert (sidecar.read_bytes(), sidecar.stat().st_mtime_ns) == original_sidecar
+    assert "FAULT_INJECTED" in caplog.text and VALID_CHUNK_ID in caplog.text
+    response = client.get(chunk_url)
+    assert response.status_code == 409 and response.json()["error"] == "CHUNK_CORRUPTED"
+    response = client.post(demo_fault)
+    assert response.status_code == 409 and response.json()["error"] == "CHUNK_CORRUPTED"
+    assert client.put(chunk_url, headers={"X-Chunk-SHA256": sha}, content=data).status_code == 201
+    assert client.get(chunk_url).content == data
+
+
+def test_demo_fault_rejects_missing_empty_and_invalid_paths(client, demo_fault):
+    response = client.post(demo_fault)
+    assert response.status_code == 404 and response.json()["error"] == "CHUNK_NOT_FOUND"
+    storage.put(VALID_CHUNK_ID, b"", compute_sha256(b""))
+    response = client.post(demo_fault)
+    assert response.status_code == 409 and response.json()["error"] == "CHUNK_EMPTY"
+    for bad_id in ("bad", VALID_CHUNK_ID + "0", "%2e%2e%2foutside", f"{VALID_CHUNK_ID}%2foutside"):
+        response = client.post(f"/internal/demo/corrupt/{bad_id}")
+        assert response.status_code == 400 and response.json()["error"] == "INVALID_CHUNK_ID"
+    assert storage.chunk_path(VALID_CHUNK_ID).read_bytes() == b""
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink"])
+def test_demo_fault_never_writes_through_a_link(client, demo_fault, tmp_path, link):
+    original = tmp_path / "outside-chunk-id"
+    original.write_bytes(b"untouched")
+    path = storage.chunk_path(VALID_CHUNK_ID)
+    if link == "symlink":
+        path.symlink_to(original)
+    else:
+        path.hardlink_to(original)
+    storage.sha_path(VALID_CHUNK_ID).write_text(compute_sha256(b"untouched"))
+    response = client.post(demo_fault)
+    assert response.status_code == 409
+    assert original.read_bytes() == b"untouched"
+
+
+@pytest.mark.parametrize("method,expected", [("GET", 409), ("PUT", 201), ("DELETE", 204)])
+def test_demo_fault_holds_chunk_lock_through_fsync(client, demo_fault, monkeypatch, method, expected):
+    data = b"demo bytes"
+    sha = compute_sha256(data)
+    storage.put(VALID_CHUNK_ID, data, sha)
+    writing, resume, competing = Event(), Event(), Event()
+    real_fsync = os.fsync
+
+    def paused_fsync(fd):
+        if not writing.is_set():
+            writing.set()
+            if not resume.wait(3):
+                raise RuntimeError("fault injection was not released")
+        return real_fsync(fd)
+
+    def compete():
+        competing.set()
+        kwargs = {"content": data, "headers": {"X-Chunk-SHA256": sha}} if method == "PUT" else {}
+        return client.request(method, f"/internal/chunks/{VALID_CHUNK_ID}", **kwargs)
+
+    monkeypatch.setattr(os, "fsync", paused_fsync)
+    with ThreadPoolExecutor(2) as pool:
+        injection = pool.submit(client.post, demo_fault)
+        try:
+            assert writing.wait(3)
+            contender = pool.submit(compete)
+            assert competing.wait(3)
+            with pytest.raises(FutureTimeout):
+                contender.result(timeout=0.05)
+        finally:
+            resume.set()
+        assert injection.result(timeout=3).status_code == 200
+        assert contender.result(timeout=3).status_code == expected
+    assert storage.check(VALID_CHUNK_ID)[0] == {"GET": "corrupt", "PUT": "ok", "DELETE": "missing"}[method]
+
+
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200

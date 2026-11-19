@@ -200,7 +200,12 @@ const workers = [1, 2, 3, 4].map((n) => ({
   heartbeat_age_seconds: n,
 }));
 
-export async function fixture(page: Page, degraded = false, empty = false) {
+export async function fixture(
+  page: Page,
+  degraded = false,
+  empty = false,
+  faultInjection = false,
+) {
   let objects = empty ? [] : names.map(makeObject);
   let managed = workers.map((worker) => ({
     ...worker,
@@ -286,6 +291,7 @@ export async function fixture(page: Page, degraded = false, empty = false) {
           replication_factor: 2,
           chunk_size: 1000000,
           recovery_available: !degraded,
+          ...(faultInjection ? { fault_injection_enabled: true } : {}),
           workers: workers.map((w) =>
             degraded ? { ...w, status: "JOINING", available: false } : w,
           ),
@@ -1247,6 +1253,131 @@ test("worker container actions are confirmed and separate from controller availa
   await expect(
     page.getByRole("button", { name: "Stop worker1", exact: true }),
   ).toBeVisible();
+});
+
+const demoOwnerKey = "placeholder-fault-demo-owner-key";
+
+async function enterDemoOwnerKey(page: Page) {
+  await page.getByRole("button", { name: "Backend connection", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Backend connection" });
+  await dialog.getByLabel("Owner access key").fill(demoOwnerKey);
+  await dialog.getByRole("button", { name: "Connect backend" }).click();
+}
+
+async function openDemoPlacement(page: Page) {
+  await page.getByRole("button", { name: "Cluster", exact: true }).click();
+  await page.getByLabel("File to visualize").selectOption({ label: names[0] });
+  const table = page.getByRole("table").filter({ hasText: "No recorded copy" });
+  await expect(table.getByText("Healthy", { exact: true })).toHaveCount(2);
+  return table;
+}
+
+for (const scenario of [
+  { title: "hidden with the default capability", enabled: false, owner: true },
+  { title: "hidden without an owner key", enabled: true, owner: false },
+]) {
+  test(`replica fault control is ${scenario.title}`, async ({ page }) => {
+    await fixture(page, false, false, scenario.enabled);
+    await page.goto("/");
+    if (scenario.owner) await enterDemoOwnerKey(page);
+    const table = await openDemoPlacement(page);
+    await expect(table.getByRole("button", { name: /Corrupt this copy/ })).toHaveCount(0);
+  });
+}
+
+test("replica fault permits both copies after separate confirmation", async ({ page }) => {
+  await fixture(page, false, false, true);
+  const requests: string[] = [];
+  const object = makeObject(names[0]);
+  const chunk = object.object_id + "_0";
+  const faultPath = (worker: string) =>
+    `/api/v1/demo/workers/${worker}/chunks/${chunk}/corrupt`;
+  const holders = ["worker1", "worker3"];
+  await page.route(`**/api/v1/objects/${object.object_id}/metadata`, (route) =>
+    requests.length
+      ? route.fulfill({ json: { ...object, chunks: [{
+          chunk_id: chunk,
+          index: 0,
+          size: 1000000,
+          sha256: "b".repeat(64),
+          workers: holders.filter((worker) => !requests.includes(faultPath(worker))),
+          replicas: holders.map((worker) => ({
+            worker_id: worker,
+            state: requests.includes(faultPath(worker)) ? "CORRUPT" : "HEALTHY",
+            worker_status: "ALIVE",
+            last_verified_at: requests.includes(faultPath(worker)) ? null : object.created_at,
+          })),
+        }] } })
+      : route.fallback(),
+  );
+  await page.route(`**${faultPath("*")}`, (route) => {
+    const request = route.request();
+    requests.push(new URL(request.url()).pathname);
+    expect(request.method()).toBe("POST");
+    expect(request.headers()["x-artaud-key"]).toBe(demoOwnerKey);
+    expect(request.headers()["x-artaud-admin"]).toBe("1");
+    return route.fulfill({ json: { action: "corrupted" } });
+  });
+  await page.goto("/");
+  await enterDemoOwnerKey(page);
+  const table = await openDemoPlacement(page);
+  const button = table.getByRole("button", { name: "Corrupt this copy on worker1 for chunk 1" });
+  await expect(table.getByRole("button", { name: /Corrupt this copy/ })).toHaveCount(2);
+  await button.click();
+  const dialog = page.getByRole("alertdialog", { name: "Corrupt this copy?" });
+  await expect(dialog.getByText(chunk, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/one stored byte/)).toContainText("worker1");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(requests).toEqual([]);
+  await button.click();
+  await dialog.getByRole("button", { name: "Corrupt this copy", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText(/Replica marked corrupt on worker1/)).toBeVisible();
+  await expect(table.getByText("Corrupt", { exact: true })).toBeVisible();
+  const survivingCopy = table.getByRole("button", { name: "Corrupt this copy on worker3 for chunk 1" });
+  expect(requests).toEqual([faultPath("worker1")]);
+  await expect(survivingCopy).toBeEnabled({ timeout: 2000 });
+  await survivingCopy.click();
+  await expect(dialog.getByText(/one stored byte/)).toContainText("worker3");
+  await dialog.getByRole("button", { name: "Corrupt this copy", exact: true }).click();
+  await expect(table.getByText("Corrupt", { exact: true })).toHaveCount(2);
+  expect(requests).toEqual(holders.map(faultPath));
+});
+
+test("replica fault disables confirmation while busy and actions while paused or stale", async ({ page }) => {
+  await fixture(page, false, false, true);
+  let offline = false;
+  await page.route("**/api/v1/overview", (route) =>
+    offline ? route.fulfill({ status: 503, json: { message: "Controller unreachable" } }) : route.fallback(),
+  );
+  let release!: () => void;
+  const workerReply = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/demo/workers/worker1/chunks/*/corrupt", async (route) => {
+    await workerReply;
+    return route.fulfill({ status: 503, json: { message: "Worker did not confirm the demo fault" } });
+  });
+  await page.goto("/");
+  await enterDemoOwnerKey(page);
+  const table = await openDemoPlacement(page);
+  const button = table.getByRole("button", { name: "Corrupt this copy on worker1 for chunk 1" });
+  await button.click();
+  const dialog = page.getByRole("alertdialog", { name: "Corrupt this copy?" });
+  try {
+    await dialog.getByRole("button", { name: "Corrupt this copy", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Applying fault…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(dialog.getByRole("alert")).toHaveText("Worker did not confirm the demo fault");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Pause live view", exact: true }).click();
+  await expect(button).toBeDisabled();
+  await page.getByRole("button", { name: "Resume live view", exact: true }).click();
+  await expect(button).toBeEnabled();
+  offline = true;
+  await expect(button).toBeDisabled();
 });
 
 test("summary groups chunk successes while technical events remain inspectable", async ({

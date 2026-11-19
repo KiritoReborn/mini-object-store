@@ -21,6 +21,7 @@ MAX_METADATA_BYTES = 32_768
 API_KEY = os.getenv("ARTAUD_API_KEY", "")
 ALLOWED_ORIGINS = [value.strip().rstrip("/") for value in os.getenv("ARTAUD_ALLOWED_ORIGINS", "").split(",") if value.strip()]
 DEMO_CONTROLS = os.getenv("ARTAUD_DEMO_CONTROLS", "false").lower() == "true"
+DEMO_FAULT_INJECTION = os.getenv("ARTAUD_DEMO_FAULT_INJECTION") == "1"
 DOCKER_PROJECT = os.getenv("ARTAUD_DOCKER_PROJECT", "mini-object-store")
 if API_KEY and len(API_KEY) < 32:
     raise ValueError("ARTAUD_API_KEY must contain at least 32 characters")

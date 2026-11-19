@@ -14,7 +14,7 @@ _KINDS = {
     "transfer_started", "transfer_completed", "transfer_failed", "object_ready",
     "object_deleted", "metadata_updated", "worker_state", "replica_state",
     "repair_started", "repair_completed", "repair_failed",
-    "worker_settings", "worker_action", "worker_connected", "worker_forgotten",
+    "worker_settings", "worker_action", "worker_connected", "worker_forgotten", "fault_injected",
 }
 _TEXT_FIELDS = ("object_id", "chunk_id", "worker_id", "transfer_id", "direction",
                 "state", "previous_state", "name", "detail")

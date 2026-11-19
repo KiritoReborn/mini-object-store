@@ -1,7 +1,9 @@
+import errno
 import hashlib
 import logging
 import os
 import re
+import stat
 import tempfile
 import threading
 from pathlib import Path
@@ -107,6 +109,36 @@ def _check(chunk_id):
 def check(chunk_id):
     with _lock(chunk_id):
         return _check(chunk_id)
+
+
+def inject_fault(chunk_id):
+    """Flip byte zero of a healthy, nonempty demo chunk under its normal lock."""
+    with _lock(chunk_id):
+        path = chunk_path(chunk_id)
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return "missing", 0
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.EISDIR}:
+                return "corrupt", 0
+            raise
+        with os.fdopen(fd, "r+b") as chunk:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or info.st_size > config.CHUNK_SIZE or sha_path(chunk_id).is_symlink()):
+                return "corrupt", 0
+            data = chunk.read(config.CHUNK_SIZE + 1)
+            stored = _read_sha(chunk_id)
+            if len(data) > config.CHUNK_SIZE or stored is None or sha256_hex(data) != stored:
+                return "corrupt", 0
+            if not data:
+                return "empty", 0
+            chunk.seek(0)
+            chunk.write(bytes([data[0] ^ 0x01]))
+            chunk.flush()
+            os.fsync(fd)
+            return "ok", len(data)
 
 
 def put(chunk_id, data, sha):

@@ -48,6 +48,7 @@ export interface Overview {
   replication_factor: number;
   chunk_size: number;
   recovery_available: boolean;
+  fault_injection_enabled?: boolean;
   workers: Worker[];
 }
 export type ToastMessage = {

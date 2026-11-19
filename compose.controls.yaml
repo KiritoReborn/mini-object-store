@@ -4,6 +4,19 @@ services:
       ARTAUD_API_KEY: ${ARTAUD_API_KEY:?Set the owner access key in .env before enabling controls}
       ARTAUD_ALLOWED_ORIGINS: ${ARTAUD_ALLOWED_ORIGINS:-}
       ARTAUD_DEMO_CONTROLS: "true"
+      ARTAUD_DEMO_FAULT_INJECTION: "1"
       ARTAUD_DOCKER_PROJECT: cloud_project
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+  worker1:
+    environment:
+      WORKER_ENABLE_FAULT_INJECTION: "1"
+  worker2:
+    environment:
+      WORKER_ENABLE_FAULT_INJECTION: "1"
+  worker3:
+    environment:
+      WORKER_ENABLE_FAULT_INJECTION: "1"
+  worker4:
+    environment:
+      WORKER_ENABLE_FAULT_INJECTION: "1"
