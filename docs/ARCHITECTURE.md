@@ -51,6 +51,14 @@ The controller reads the ordered manifest, tries eligible recorded replicas, and
 
 Verified chunks are assembled in controller-owned temporary storage. The whole file's size and hash must match before a binary `200` response starts. If any required chunk has no verified readable source, the response is JSON `503` instead of a partial file. A later client/network interruption during transmission is still possible. Temporary download files are released after sending or cancellation.
 
+Applicable valid byte ranges return206 from the verified temporary file. Malformed/out-of-bounds ranges produce JSON `400`/`416`; a stale If-Range validator requests the full verified response. Range support does not skip the initial complete-object integrity check. Browser-local file verification is a separate tool comparing a selected file with the stored whole-object checksum; see [development](DEVELOPMENT.md#local-file-checksum-verification).
+
+## Replica states and displayed counts
+
+Each replica record represents one chunk on one worker. HEALTHY means the recorded copy passed verification; CORRUPT means its bytes/size failed; MISSING means the expected chunk is absent. PENDING_DELETE tracks uncertain writes or cleanup. A stopped worker is unavailable, which is separate from proving its disk data missing.
+
+Topology copies count only HEALTHY records for UPLOADING/READY objects. Manage workers counts all replica records. Neither is a fresh full-disk audit or proof of available capacity. Recovery may remove damaged bytes, so a record can move CORRUPT → MISSING before repair. Counts describe current recorded states, not the number of corruption actions. Corrupting two workers in the same chunk row affects both replicas of one chunk; if no good source survives, repair must wait for valid data.
+
 ## Worker admission and repair
 
 Workers register as `JOINING`, then send heartbeats. Heartbeats prove recent communication; they do not grant storage eligibility. Recovery inventories a joining worker, verifies its actual bytes, reconciles missing/orphan/surplus chunks, and admits it as ALIVE only after an atomic registration-token check. A restart during inventory invalidates the old admission attempt, while an ordinary heartbeat does not.
@@ -64,7 +72,7 @@ Recovery reads a verified surviving replica before creating and verifying a repl
 | Event                                           | Current behavior                                                                                                                                                |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | One of a chunk's two holders stops              | Read fallback can work immediately; death detection and repair restore the target when an eligible destination exists.                                          |
-| Both holders stop before repair                 | No verified live source for that chunk. The affected file's download returns503; repair waits for a source. Other files can remain readable.                    |
+| Both holders stop before repair                 | No verified live source for that chunk. The affected file's download returns `503`; repair waits for a source. Other files can remain readable.                 |
 | One holder restarts with valid persistent bytes | Verified admission can make the source usable again; repair can rebuild the second copy.                                                                        |
 | All physical copies are permanently destroyed   | The chunk is unrecoverable without an external backup. No parity fragments exist in this implementation.                                                        |
 | A returning worker has three-copy surplus       | Its original chunks can be deliberately removed after two copies elsewhere are verified. The volume itself persists; an ALIVE worker with zero chunks is valid. |
@@ -96,5 +104,5 @@ Artaud deliberately retains the assignment's two-copy policy. Changing a single 
 - [HTTP and wire contracts](../contracts/api-contract.md)
 - [Database relationships and invariants](../contracts/db-schema.md)
 - [Stable database/recovery helper interface](../contracts/db-helpers.md)
-- [Observed activity and visualization semantics](LIVE_SYSTEM.md)
-- [Verified acceptance scope](ACCEPTANCE.md)
+- [Observed activity and visualization semantics](DEVELOPMENT.md#activity-contract)
+- [Automated and real-container checks](DEVELOPMENT.md#automated-checks)

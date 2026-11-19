@@ -78,7 +78,7 @@ Tonal layering and thin dividers define normal surfaces. Soft, offset elevation 
 
 ## Shapes
 
-Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type icons 6â€“12px according to size. Thin borders communicate grouping/state. Small status badges are compact rounded labels rather than large pill containers.
+Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type icons 6–12px according to size. Thin borders communicate grouping/state. Small status badges are compact rounded labels rather than large pill containers.
 
 ## Components
 

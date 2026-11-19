@@ -35,11 +35,11 @@ JOINING is expected during inventory verification. Check controller and worker l
 
 The default Docker configuration uses `http://controller:8000` for worker registration and `http://workerN:8001` for worker access. `localhost` inside a worker refers to that worker, not the controller. Confirm the containers share the expected Compose network. Never patch a worker directly to ALIVE to make the UI pass.
 
-## Upload returns503
+## Upload returns `503`
 
 Nonempty chunks need two distinct eligible workers that accept the write. Check ALIVE state, fresh heartbeats, upload-placement pause settings and worker request errors. A worker may be healthy for reads but paused for new upload placement. Failed writes can retry another worker; an upload that cannot meet the policy must fail rather than expose a partial READY object.
 
-## Download returns503 although the object is listed
+## Download returns `503` although the object is listed
 
 The metadata exists, but at least one required chunk has no verified readable copy. If both holders are stopped, restart a holder with its existing volume and allow verified admission. Recovery cannot create bytes without a surviving source. Do not delete volumes to troubleshoot this error. A recorded HEALTHY copy can later become unavailable or fail verification.
 
@@ -74,7 +74,7 @@ Edit `frontend/src`, run `npm run build` from `frontend`, then rebuild/recreate 
 
 ## Worker tests fail on native Windows
 
-Worker directory syncing uses Linux filesystem behavior. Run the full backend suite inside the documented Linux test container. See [acceptance commands](ACCEPTANCE.md). Frontend tests can run on the host after `npm ci` and browser installation.
+Worker directory syncing uses Linux filesystem behavior. Run the full backend suite inside the documented Linux test container. See [test commands](DEVELOPMENT.md#automated-checks). Frontend tests can run on the host after `npm ci` and browser installation.
 
 ## Data appears absent after restarting Compose
 

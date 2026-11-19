@@ -4,14 +4,14 @@ One local controller at port 8000; four worker listeners at port 8001. Internal 
 
 ## Public endpoints (Member A)
 
-| Method | Route | Body / response | Success |
-|---|---|---|---|
-| POST | `/api/v1/objects` | multipart: required `file`, optional `metadata` JSON string; returns READY object metadata including ID/hash/count/locations | 201 |
-| GET | `/api/v1/objects/{id}` | Verified original bytes, Content-Type, safe Content-Disposition, X-Object-SHA256 and checksum ETag | 200 or 206 for a served range |
-| GET | `/api/v1/objects/{id}/metadata` | System/custom metadata, ordered chunk index/size/hash, workers and replica states | 200 |
-| PATCH | `/api/v1/objects/{id}/metadata` | `{"metadata":{"course":"CC","reviewed":true}}`; merge custom keys; returns updated metadata | 200 |
-| DELETE | `/api/v1/objects/{id}` | Logical removal and reachable physical cleanup; no response body | 204 |
-| GET | `/api/v1/objects` | JSON array of READY objects with system/custom fields; no chunks downloaded | 200 |
+| Method | Route                           | Body / response                                                                                                              | Success                       |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| POST   | `/api/v1/objects`               | multipart: required `file`, optional `metadata` JSON string; returns READY object metadata including ID/hash/count/locations | 201                           |
+| GET    | `/api/v1/objects/{id}`          | Verified original bytes, Content-Type, safe Content-Disposition, X-Object-SHA256 and checksum ETag                           | 200 or 206 for a served range |
+| GET    | `/api/v1/objects/{id}/metadata` | System/custom metadata, ordered chunk index/size/hash, workers and replica states                                            | 200                           |
+| PATCH  | `/api/v1/objects/{id}/metadata` | `{"metadata":{"course":"CC","reviewed":true}}`; merge custom keys; returns updated metadata                                  | 200                           |
+| DELETE | `/api/v1/objects/{id}`          | Logical removal and reachable physical cleanup; no response body                                                             | 204                           |
+| GET    | `/api/v1/objects`               | JSON array of READY objects with system/custom fields; no chunks downloaded                                                  | 200                           |
 
 Custom metadata must be a JSON object with finite JSON values, encoded size at most 32768 bytes after merge. System fields such as size/hash/name/status/timestamps/chunks cannot be modified through custom metadata. PATCH preserves unspecified custom keys; null is a JSON value, not a key-deletion instruction. Filenames retain safe Unicode names and have path components removed. Invalid/empty/control-character names return 400. Content type defaults to application/octet-stream if missing or invalid.
 
@@ -31,15 +31,15 @@ The optional Vercel frontend calls the PC's HTTPS API directly. File bodies do n
 
 ## Worker administration and demo controls (Member A)
 
-| Method | Route | Behavior | Success |
-|---|---|---|---|
-| GET | `/api/v1/workers` | `{workers, placement_available_workers}`; worker profiles include base_url/status/heartbeat, availability, labels/notes, placement_enabled, replica_count, chunk_count/stored_bytes and can_forget | 200 |
-| POST | `/api/v1/workers/connect` | Required worker_id/base_url; optional display_name/notes. Only worker1..worker16 with exact `http://<worker_id>:8001`; bounded health/identity verification. New records JOINING; existing state preserved | 200 |
-| PATCH | `/api/v1/workers/{id}` | Nonempty subset of display_name (max 64), notes (max 512), placement_enabled (boolean); returns updated profile | 200 |
-| DELETE | `/api/v1/workers/{id}` | Atomic metadata-only forget; requires stale/absent heartbeat and zero replica records of every state. In-use 409; missing 404 | 204 |
-| GET | `/api/v1/demo/workers` | `{enabled, workers:[{worker_id, container_state, running}]}`; disabled returns false/empty list | 200 |
-| POST | `/api/v1/demo/workers/{id}/{action}` | Opt-in, authenticated start/stop/restart for existing worker1..worker4 only. Returns action and actual container state; missing container 404, identity mismatch 409, disabled/engine failure 503 | 200 |
-| POST | `/api/v1/demo/workers/{id}/chunks/{chunk_id}/corrupt` | Requires `ARTAUD_DEMO_FAULT_INJECTION=1`, an owner key and the admin header. Targets a registered worker's HEALTHY replica. Disabled or absent target 404, unhealthy copy 409, worker failure 503. | 200 |
+| Method | Route                                                 | Behavior                                                                                                                                                                                                   | Success |
+| ------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| GET    | `/api/v1/workers`                                     | `{workers, placement_available_workers}`; worker profiles include base_url/status/heartbeat, availability, labels/notes, placement_enabled, replica_count, chunk_count/stored_bytes and can_forget         | 200     |
+| POST   | `/api/v1/workers/connect`                             | Required worker_id/base_url; optional display_name/notes. Only worker1..worker16 with exact `http://<worker_id>:8001`; bounded health/identity verification. New records JOINING; existing state preserved | 200     |
+| PATCH  | `/api/v1/workers/{id}`                                | Nonempty subset of display_name (max 64), notes (max 512), placement_enabled (boolean); returns updated profile                                                                                            | 200     |
+| DELETE | `/api/v1/workers/{id}`                                | Atomic metadata-only forget; requires stale/absent heartbeat and zero replica records of every state. In-use 409; missing 404                                                                              | 204     |
+| GET    | `/api/v1/demo/workers`                                | `{enabled, workers:[{worker_id, container_state, running}]}`; disabled returns false/empty list                                                                                                            | 200     |
+| POST   | `/api/v1/demo/workers/{id}/{action}`                  | Opt-in, authenticated start/stop/restart for existing worker1..worker4 only. Returns action and actual container state; missing container 404, identity mismatch 409, disabled/engine failure 503          | 200     |
+| POST   | `/api/v1/demo/workers/{id}/chunks/{chunk_id}/corrupt` | Requires `ARTAUD_DEMO_FAULT_INJECTION=1`, an owner key and the admin header. Targets a registered worker's HEALTHY replica. Disabled or absent target 404, unhealthy copy 409, worker failure 503.         | 200     |
 
 Placement pause affects subsequent A upload selections; reads, in-flight writes and B recovery policy remain separate. Connect does not create a container. Forget never deletes disks. Container actions require the optional Docker socket overlay and matching Compose project/service/name; no arbitrary target, shell, creation/deletion or volume removal is exposed. Actual container running state and controller storage eligibility are different facts. No action bypasses inventory verification or promotes a worker to ALIVE.
 
@@ -51,7 +51,7 @@ Placement pause affects subsequent A upload selections; reads, in-flight writes 
 
 Overview includes `fault_injection_enabled: true` when controller fault injection and owner authentication are configured. The demo overlay enables the controller and worker flags together. Under the normal object lock, the controller sends the fault request to the selected worker over HTTP and records the copy as CORRUPT after acknowledgement. The demo can target the last readable copy. A worker-confirmed corrupt or missing replica also updates the manifest. Recovery continues on its normal schedule.
 
-Dashboard activity: `GET /api/v1/activity?after=0` returns stream_id/oldest_id/latest_id/next_cursor/truncated/events. The cursor is nonnegative; at most 512 process-local events are retained. Events describe acknowledged/verified transfer attempts and committed helper changes; restarts reset the stream. Concurrent post-commit observations may interleave, so current manifests/overview remain authoritative. See [the complete event contract](../docs/LIVE_SYSTEM.md), including optional B repair events. No helper signature or recovery policy changes are required.
+Dashboard activity: `GET /api/v1/activity?after=0` returns stream_id/oldest_id/latest_id/next_cursor/truncated/events. The cursor is nonnegative; at most 512 process-local events are retained. Events describe acknowledged/verified transfer attempts and committed helper changes; restarts reset the stream. Concurrent post-commit observations may interleave, so current manifests/overview remain authoritative. See [the complete event contract](../docs/DEVELOPMENT.md#activity-contract), including optional B repair events. No helper signature or recovery policy changes are required.
 
 ## Worker -> controller
 
