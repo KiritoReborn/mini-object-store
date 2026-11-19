@@ -21,6 +21,14 @@ Vercel can serve the page even while the PC backend is offline. Check that the P
 
 If the ngrok URL changed, update `VITE_API_BASE_URL` in Vercel and redeploy, or use the connection override for the current tab. Set `ARTAUD_ALLOWED_ORIGINS` to the exact frontend origin and recreate the controller after changing it. A different Vercel preview URL is a different origin; do not solve that with an unrestricted wildcard. See [the deployment steps](DEMO.md).
 
+## Public downloads are slow or stop while localhost is fast
+
+The browser downloads directly from the PC through ngrok; Vercel only serves frontend assets. Compare a generated test file on both routes before attributing the delay to storage. The controller verifies the complete object before starting a binary response. Browsers without the writable-file picker also buffer the complete response before triggering their save, which can make network waiting look like an unresponsive button.
+
+If the public endpoint returns HTTP403 with `ERR_NGROK_725`, the ngrok account has exhausted its monthly bandwidth allowance. This is a tunnel/account limit, not a Vercel build error. Inspect [ngrok usage](https://dashboard.ngrok.com/usage) and [the official error description](https://ngrok.com/docs/errors/err_ngrok_725). Use the local dashboard while waiting for the billing-cycle reset, or select an account/tunnel provisioned for the required transfer. Restarting the agent or redeploying the frontend does not reset that allowance. Do not assume an upgrade guarantees a particular transfer speed; PC upload bandwidth and routing still matter.
+
+Check integrity separately. A chunk with no healthy surviving copy cannot be downloaded even with a fast network and four running workers. Restore a valid original/backup rather than bypassing checksum verification. For privacy, use disposable synthetic bytes for public-route performance tests and remove the known test object afterward.
+
 ## Workers remain JOINING
 
 JOINING is expected during inventory verification. Check controller and worker logs for registration, inventory failures, stale heartbeats, corrupt chunks or a restarted registration attempt. Containers being `running` or passing `/health` is separate from being eligible for storage.
