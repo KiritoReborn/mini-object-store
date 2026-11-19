@@ -56,6 +56,10 @@ Placement selects the least-loaded healthy chunk count and breaks ties by worker
 
 Configure a private owner key and start with `scripts/Start-Artaud.ps1 -DemoControls`, or use the documented Compose controls overlay. Docker Desktop must be running, and the existing containers must match the configured project/service/name. Connect worker registers an existing supported worker; it does not create a Docker container. Forget removes eligible metadata only; it does not erase a disk.
 
+If the API reports `CONTAINER_MISMATCH`, compare the worker's `com.docker.compose.project` label with the controller's `ARTAUD_DOCKER_PROJECT`. The controls overlay derives that setting from Compose's active `COMPOSE_PROJECT_NAME`, including an explicit `-p` project name. Keep the existing project/volumes and recreate only the controller after correcting configuration; do not rename the stack or disable container-identity checks. For the default project, run `docker compose -f compose.yaml -f compose.controls.yaml up -d --no-deps controller`.
+
+`Container: not connected` is an unknown UI state when inspection fails, not proof the worker stopped. If the accompanying error says the controller cannot be reached, verify the current backend HTTPS address and running ngrok agent as well. The local dashboard can connect to `http://127.0.0.1:8000`; the public Vercel dashboard needs the active HTTPS tunnel and exact allowed origin.
+
 ## UI appears stale after a frontend change
 
 Edit `frontend/src`, run `npm run build` from `frontend`, then rebuild/recreate the controller. Normal builds write `controller/static`; Vercel builds write `frontend/dist`. A Vite development server is a separate development path. When refresh fails, the UI deliberately marks observations stale or unknown instead of retaining a green claim.

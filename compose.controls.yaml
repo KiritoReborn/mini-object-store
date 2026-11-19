@@ -5,7 +5,7 @@ services:
       ARTAUD_ALLOWED_ORIGINS: ${ARTAUD_ALLOWED_ORIGINS:-}
       ARTAUD_DEMO_CONTROLS: "true"
       ARTAUD_DEMO_FAULT_INJECTION: "1"
-      ARTAUD_DOCKER_PROJECT: cloud_project
+      ARTAUD_DOCKER_PROJECT: ${COMPOSE_PROJECT_NAME:-mini-object-store}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
   worker1:
