@@ -1,4 +1,5 @@
 """Real controller and SQLite with only the external worker HTTP boundary replaced."""
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -7,14 +8,16 @@ from unittest.mock import patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 
 @pytest.fixture
-def system(tmp_path, monkeypatch, no_recovery_module):
+def system(tmp_path, monkeypatch, no_recovery_module, request):
     from controller import config, database
     from controller.main import create_app
     monkeypatch.setattr(config, "DATABASE_PATH", str(tmp_path / "metadata.db"))
     monkeypatch.setattr(config, "DOWNLOAD_TEMP_DIR", tmp_path / "downloads")
+    monkeypatch.setattr(config, "RECONCILE_INTERVAL", getattr(request, "param", config.RECONCILE_INTERVAL))
     state = {"data": {}, "fail_put": set(), "fail_get": set(), "fail_delete": set(),
              "forged": set(), "missing": set(), "lost_reply": set(), "bad_ack": set(), "history": []}
 
@@ -357,6 +360,85 @@ def test_delete_hides_object_even_if_a_worker_is_offline(system):
     assert client.get(f"/api/v1/objects/{oid}/metadata").status_code == 404
     assert client.delete(f"/api/v1/objects/{oid}").status_code == 404
     assert client.get("/api/v1/objects").json() == []
+
+
+@pytest.mark.parametrize(("system", "retry"), [(60, True), (0.01, False)], indirect=["system"])
+def test_interrupted_delete_finishes_without_restarting(system, retry, monkeypatch):
+    from controller import objects
+
+    client, state, db, _ = system
+    oid = upload(client).json()["object_id"]
+    path = f"/api/v1/objects/{oid}"
+    original_delete = objects._delete_copy
+
+    async def interrupt_delete():
+        entered = asyncio.Event()
+
+        async def pause_second_copy(http, chunk_id, replica):
+            if replica["worker_id"] == "worker2" and not entered.is_set():
+                entered.set()
+                await asyncio.Event().wait()
+            return await original_delete(http, chunk_id, replica)
+
+        monkeypatch.setattr(objects, "_delete_copy", pause_second_copy)
+        task = asyncio.create_task(objects.delete_object(Request({"type": "http", "app": client.app}), oid))
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=3)
+            assert db.get_object_manifest(oid)["status"] == "DELETING"
+            assert list(state["data"]) == [("worker2", f"{oid}_0")]
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    client.portal.call(interrupt_delete)
+    assert client.get(path + "/metadata").status_code == 404
+    if retry:
+        assert client.delete(path).status_code == 204
+    else:
+        async def wait_for_cleanup():
+            while db.get_object_manifest(oid) is not None:
+                await asyncio.sleep(0.01)
+
+        client.portal.call(asyncio.wait_for, wait_for_cleanup(), 3)
+    assert db.get_object_manifest(oid) is None
+    assert state["data"] == {}
+    assert client.delete(path).status_code == 404
+
+
+def test_manifest_distinguishes_recorded_and_available_replica_locations(system):
+    client, _, db, _ = system
+    obj = upload(client).json()
+    assert obj["chunks"][0]["available_workers"] == ["worker1", "worker2"]
+    db.set_worker_state("worker1", "DEAD")
+    with db.connection() as conn:
+        conn.execute("UPDATE workers SET last_heartbeat=? WHERE worker_id='worker2'", ("2000-01-01T00:00:00+00:00",))
+
+    chunk = client.get(f'/api/v1/objects/{obj["object_id"]}/metadata').json()["chunks"][0]
+    assert chunk["workers"] == ["worker1", "worker2"]
+    assert chunk["available_workers"] == []
+    assert [(r["state"], r["worker_status"]) for r in chunk["replicas"]] == [
+        ("HEALTHY", "DEAD"), ("HEALTHY", "ALIVE"),
+    ]
+    overview = client.get("/api/v1/overview").json()
+    assert overview["healthy_replica_count"] == 0
+    assert overview["under_replicated_chunks"] == 1
+
+
+def test_openapi_documents_binary_downloads_and_json_validation_errors(system):
+    client, _, _, _ = system
+    schema = client.get("/openapi.json").json()
+    download = schema["paths"]["/api/v1/objects/{object_id}"]["get"]["responses"]
+    assert set(download["200"]["content"]) == {"application/octet-stream"}
+    assert download["200"]["content"]["application/octet-stream"]["schema"]["format"] == "binary"
+    assert set(download["206"]["content"]) == {"application/octet-stream", "multipart/byteranges"}
+    assert "Content-Range" in download["206"]["headers"]
+    assert "Content-Range" in download["416"]["headers"]
+    upload_responses = schema["paths"]["/api/v1/objects"]["post"]["responses"]
+    for responses, status in [(download, "400"), (download, "416"), (upload_responses, "400")]:
+        assert "422" not in responses
+        ref = responses[status]["content"]["application/json"]["schema"]["$ref"]
+        assert set(schema["components"]["schemas"][ref.rsplit("/", 1)[1]]["required"]) == {"error", "message"}
 
 
 def test_non_ready_objects_are_hidden_and_filename_is_safe(system):

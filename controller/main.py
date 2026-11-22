@@ -148,6 +148,25 @@ def create_app(*, worker_transport=None, docker_transport=None) -> FastAPI:
             raise StoreError(404, "WORKER_NOT_FOUND", "Worker must register first")
         return {"worker_id": body.worker_id, "status": "accepted"}
 
+    default_openapi = app.openapi
+
+    def openapi():
+        if app.openapi_schema is not None:
+            return app.openapi_schema
+        schema = default_openapi()
+        for path in schema["paths"].values():
+            for operation in path.values():
+                responses = operation.get("responses", {})
+                validation = responses.get("422", {}).get("content", {}).get("application/json", {}).get("schema", {})
+                if validation.get("$ref") == "#/components/schemas/HTTPValidationError":
+                    del responses["422"]
+                    responses.setdefault("400", {
+                        "description": "Invalid request fields or JSON",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                    })
+        return schema
+
+    app.openapi = openapi
     return app
 
 

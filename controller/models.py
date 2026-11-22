@@ -17,6 +17,11 @@ class StoreError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+class ErrorResponse(BaseModel):
+    error: str
+    message: str
+
+
 def validate_metadata(value: object) -> dict:
     if not isinstance(value, dict) or any(not isinstance(k, str) for k in value):
         raise ValueError("Metadata must be a JSON object with string keys")
