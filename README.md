@@ -2,7 +2,7 @@
 
 Upload files, inspect their chunks, stop a worker and observe verified replica recovery. Artaud is a two-person distributed-systems project built with **Python, FastAPI, SQLite, React, TypeScript and Docker Compose**.
 
-**[Live website](https://frontend-nine-iota-19.vercel.app/)** · [Setup](#setup-and-start) · [Architecture](docs/ARCHITECTURE.md) · [API](contracts/api-contract.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Setup](#setup-and-start) · [Architecture](docs/ARCHITECTURE.md) · [API](contracts/api-contract.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ![Artaud cluster dashboard with a controller and four storage workers](docs/images/cluster-dashboard.png)
 
@@ -18,7 +18,7 @@ _Actual dashboard capture; counts and availability are observations at capture t
 - A cluster view with real topology, replica states, observed transfers, replay, activity and diagnostics.
 - Optional owner-controlled worker Start/Stop/Restart and deliberate corruption of test replicas for demonstrations.
 
-The local application runs completely in Docker. Vercel is an optional frontend host; the PC remains the backend. The public website requires a working HTTPS tunnel and the private owner key. Its frontend can load while the backend is offline or out of tunnel allowance.
+The controller serves the dashboard locally. Docker runs the controller and all four workers.
 
 ## Setup and start
 
@@ -42,52 +42,39 @@ git pull --ff-only
 
 The default branch is `master`. If Git reports local edits or a conflict, resolve those before continuing.
 
-> **Existing stored files:** keep the same Compose project name on every startup. `docker compose ls` shows existing projects. If you previously used a custom name, keep using `-p YOUR_EXISTING_PROJECT` on Compose commands. The default for a fresh `mini-object-store` folder is `mini-object-store`. Changing the project name selects different volumes.
+The commands below use the Compose project name `cloud_project`, even when the checkout folder is named `mini-object-store`. If you already have stored data under another project, check `docker compose ls` and use that existing project name consistently to reuse its volumes.
 
-### 2. Choose your startup mode
+### 2. Start the stack
 
-**Normal local use — Windows, macOS or Linux:**
+**For evaluation, use the full demo.** First configure a private owner key in the repository root:
 
-```sh
-docker compose -f compose.yaml up --build -d
-docker compose -f compose.yaml ps
-```
+- **Windows (PowerShell):** Run the command below. It creates a key if needed and preserves the existing key. Omitting `-FrontendOrigin` preserves the allowed origins. Supplying that argument replaces `ARTAUD_ALLOWED_ORIGINS` with the specified origin.
+- **macOS/Linux:** If your root `.env` already contains `ARTAUD_API_KEY`, reuse it. Otherwise run `openssl rand -hex 32`, then add `ARTAUD_API_KEY=<generated value>` to `.env`, replacing the placeholder and preserving other entries.
 
-This starts the controller and all four workers. It serves the committed frontend build without a separate React/Node server. The optional owner key still applies if your existing `.env` contains one.
-
-**Demo mode on Windows — worker buttons and corruption controls:**
-
-Run in PowerShell from the repository root:
+Windows key setup:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure-Demo.ps1 -FrontendOrigin "https://frontend-nine-iota-19.vercel.app"
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Artaud.ps1 -DemoControls
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure-Demo.ps1
 ```
 
-The configuration helper preserves existing settings and creates a private owner key in the ignored `.env` if needed. The startup helper builds/starts all five services with the controls overlay. The process-scoped execution-policy flag applies only to these invocations.
-
-**Demo mode on macOS/Linux:**
-
-Generate an owner key locally:
+Start or upgrade the **entire stack** with the controls overlay. This enables **Start**, **Stop**, and **Restart** for the four workers and **Corrupt this copy** for eligible replicas. The overlay mounts the Docker socket into the controller and enables fault injection on the workers.
 
 ```sh
-openssl rand -hex 32
+docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up --build -d
+docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml ps
 ```
 
-Copy the generated value into your existing or new root `.env`, preserving any other settings:
-
-```dotenv
-ARTAUD_API_KEY=PASTE_YOUR_GENERATED_KEY_HERE
-ARTAUD_ALLOWED_ORIGINS=https://frontend-nine-iota-19.vercel.app
-```
-
-Then start every service with the overlay:
+**Normal dashboard only:** To run the controller and four workers with standard storage and recovery, use the base configuration:
 
 ```sh
-docker compose -f compose.yaml -f compose.controls.yaml up --build -d
+docker compose -p cloud_project -f compose.yaml up --build -d
 ```
 
-The overlay gives the controller privileged Docker-socket access and enables deliberate fault injection. Use corruption controls only on files uploaded for the demo. The project-name allowlist follows the active Compose project; keep your existing project and volumes.
+**Container controls only:** On an already running base stack, the following command enables the controller’s Docker Start/Stop/Restart actions. The four workers keep their base configuration. Use the full demo command above for **Corrupt this copy**.
+
+```sh
+docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up -d --no-deps controller
+```
 
 ### 3. Open the dashboard and connect
 
@@ -97,7 +84,7 @@ Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**.
 2. For the local dashboard, leave **Backend HTTPS address** empty to use the controller serving the page.
 3. If an owner key is configured, enter only the value after `ARTAUD_API_KEY=` from the local `.env`.
 4. Choose **Test connection → Connect backend**.
-5. Open **Cluster** and wait for the workers to finish JOINING and become available. Nonempty uploads need at least two eligible workers.
+5. Open **Cluster → Manage workers** to see the worker controls. Wait for the workers to finish JOINING and become available. Nonempty uploads need at least two eligible workers.
 
 On Windows, view the local key privately with `notepad .env`. The key clears on page reload and must be entered again. Keep it out of Git, screenshots and `VITE_` variables. API documentation is at **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**; a healthy `/health` response confirms the controller is up, not that every worker or replica is ready.
 
@@ -105,44 +92,25 @@ On Windows, view the local key privately with `notepad .env`. The key clears on 
 
 Upload a disposable file larger than 1 MB. Inspect its ordered chunks and two recorded healthy locations, edit its metadata, then download and compare the checksum. **Details → Verify integrity** can compare a selected original/downloaded file with its stored SHA-256 locally in the browser (up to 128 MiB).
 
-In demo mode, stop one actual holder, observe fallback/repair, then start it again. Starting a worker triggers inventory verification before admission. Recovery may delete surplus copies on rejoin, leaving a healthy returned worker empty.
+In demo mode, stop one actual holder, observe fallback/repair, then start it again. Availability reflects the latest verified admission and heartbeat. Recovery normally runs about every 5 seconds. Roughly every 60 seconds, a live inventory pass checks stored copies against their recorded checksums. Downloads verify each copy they read. Starting a worker triggers inventory verification before admission. Recovery may delete surplus copies on rejoin, leaving a healthy returned worker empty.
 
-**Corrupting both replicas of the same chunk removes its good source.** The affected download returns `503` until valid data is restored or re-uploaded. Two different worker buttons in one chunk row target two copies of that same chunk.
+**Corrupting both replicas of the same chunk removes its good source.** The affected download returns `503` until a valid copy of that chunk is restored. Uploading the original file again creates a new object ID. Two different worker buttons in one chunk row target two copies of that same chunk.
 
 ### 5. Stop and restart safely
 
 Stop for the day while keeping containers and stored data:
 
 ```sh
-docker compose -f compose.yaml stop
+docker compose -p cloud_project -f compose.yaml stop
 ```
 
-Next time, rerun the startup command for your chosen mode. Normal `docker compose -f compose.yaml down` also preserves named volumes. **Adding `-v` deletes volumes and their stored data.** Keep the same Compose project name when starting again.
-
-## Connect the live Vercel website
-
-Keep the local stack running. With the official ngrok agent configured on your PC, open a separate terminal:
-
-```sh
-ngrok http http://127.0.0.1:8000 --inspect=false
-```
-
-Reuse an existing agent if one already serves this controller. Copy its current **HTTPS Forwarding** origin, then open **[the live website](https://frontend-nine-iota-19.vercel.app/)**:
-
-1. Open **Connection settings**.
-2. Paste the ngrok origin into **Backend HTTPS address**, with no `/api` path.
-3. Enter the same private owner key.
-4. Choose **Test connection → Connect backend**.
-
-Keep the PC, Docker and agent running. To save a default address for new visitors, update Vercel's production `VITE_API_BASE_URL` and redeploy. Existing tabs can retain an older address override. Never put the owner key in a frontend build variable.
-
-The request path is **browser → ngrok HTTPS → PC controller → workers**. Vercel serves the interface; it does not run Docker or store the file bytes. If ngrok returns `ERR_NGROK_725`, its monthly account bandwidth is exhausted; restarting or redeploying does not reset the allowance. Use localhost while resolving it. See [the demo/deployment guide](docs/DEMO.md) for Vercel settings, exact-origin CORS and presentation steps.
+Next time, rerun the startup command for your chosen mode. Normal `docker compose -p cloud_project -f compose.yaml down` also preserves named volumes. **Adding `-v` deletes volumes and their stored data.** Keep the same Compose project name when starting again.
 
 ## How storage works
 
 ```mermaid
 flowchart LR
-    B[Browser] -->|Local HTTP or ngrok HTTPS| C[Controller]
+    B[Browser] -->|Local HTTP| C[Controller]
     C <--> D[(SQLite metadata volume)]
     C <--> W1[worker1 + volume]
     C <--> W2[worker2 + volume]
@@ -176,7 +144,7 @@ For frontend work, run `npm ci` and `npm run dev` inside `frontend`; run `npm ru
 | Document                                                                         | Purpose                                                                   |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [Architecture](docs/ARCHITECTURE.md)                                             | Chunk placement, integrity, state meanings and failure model              |
-| [Demo and deployment](docs/DEMO.md)                                              | Vercel/PC connection, worker controls and presentation                    |
+| [Demo and deployment](docs/DEMO.md)                                              | Local setup, worker controls and presentation                    |
 | [Troubleshooting](docs/TROUBLESHOOTING.md)                                       | Owner key, JOINING, unknown containers, quotas and missing/corrupt copies |
 | [Development and testing](docs/DEVELOPMENT.md)                                   | Controller/frontend development, automated checks and telemetry           |
 | [HTTP contract](contracts/api-contract.md)                                       | Public/internal endpoints and shared wire behavior                        |
