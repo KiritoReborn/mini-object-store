@@ -42,7 +42,9 @@ git pull --ff-only
 
 The default branch is `master`. If Git reports local edits or a conflict, resolve those before continuing.
 
-The commands below use the Compose project name `cloud_project`, even when the checkout folder is named `mini-object-store`. If you already have stored data under another project, check `docker compose ls` and use that existing project name consistently to reuse its volumes.
+Run the commands below from the repository root (the folder containing `compose.yaml`). A normal `git clone` creates a folder named `mini-object-store`, so Docker Compose uses `mini-object-store` as its project name by default. If you downloaded a ZIP or renamed the folder, enter that folder and use the same commands. Compose derives the default project name from the directory.
+
+**Existing installations only:** If you previously started the stack with an explicit project name, keep using it to reuse the same volumes. For example, if your existing project is `cloud_project`, add `-p cloud_project` immediately after `docker compose` in each command. A fresh checkout needs no `-p` flag.
 
 ### 2. Start the stack
 
@@ -60,20 +62,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure-Demo.ps1
 Start or upgrade the **entire stack** with the controls overlay. This enables **Start**, **Stop**, and **Restart** for the four workers and **Corrupt this copy** for eligible replicas. The overlay mounts the Docker socket into the controller and enables fault injection on the workers.
 
 ```sh
-docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up --build -d
-docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml ps
+docker compose -f compose.yaml -f compose.controls.yaml up --build -d
+docker compose -f compose.yaml -f compose.controls.yaml ps
 ```
 
 **Normal dashboard only:** To run the controller and four workers with standard storage and recovery, use the base configuration:
 
 ```sh
-docker compose -p cloud_project -f compose.yaml up --build -d
+docker compose -f compose.yaml up --build -d
 ```
 
 **Container controls only:** On an already running base stack, the following command enables the controller’s Docker Start/Stop/Restart actions. The four workers keep their base configuration. Use the full demo command above for **Corrupt this copy**.
 
 ```sh
-docker compose -p cloud_project -f compose.yaml -f compose.controls.yaml up -d --no-deps controller
+docker compose -f compose.yaml -f compose.controls.yaml up -d --no-deps controller
 ```
 
 ### 3. Open the dashboard and connect
@@ -101,10 +103,10 @@ In demo mode, stop one actual holder, observe fallback/repair, then start it aga
 Stop for the day while keeping containers and stored data:
 
 ```sh
-docker compose -p cloud_project -f compose.yaml stop
+docker compose -f compose.yaml stop
 ```
 
-Next time, rerun the startup command for your chosen mode. Normal `docker compose -p cloud_project -f compose.yaml down` also preserves named volumes. **Adding `-v` deletes volumes and their stored data.** Keep the same Compose project name when starting again.
+Next time, rerun the startup command for your chosen mode. Normal `docker compose -f compose.yaml down` also preserves named volumes. **Adding `-v` deletes volumes and their stored data.** Keep the same Compose project name when starting again.
 
 ## How storage works
 
