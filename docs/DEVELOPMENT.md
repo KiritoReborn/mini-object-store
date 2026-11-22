@@ -161,7 +161,7 @@ Kinds include transfer started/completed/failed; object ready/deleted; metadata 
 
 Mutation observations publish after successful DB commits and may interleave relative to commit order. Unchanged heartbeats/states do not flood the journal. A removed replica can have null state. Object cascade deletion does not imply every offline disk was already erased. Telemetry is best effort and cannot decide storage success. Current overview/manifests remain authoritative; this is not a permanent audit log.
 
-Each worker transfer attempt has its own ID. Completion means acknowledged write or verified read, not a browser save or final object publication. Corruption injection emits `fault_injected` after the worker acknowledgement and commits CORRUPT. Detailed repair phases appear only when actual recovery emits them.
+Each worker transfer attempt has its own ID. Completion means acknowledged write or verified read, not a browser save or final object publication. Corruption injection emits `fault_injected` after the worker acknowledgement. A later download or inventory pass records CORRUPT when it detects the damaged copy. Detailed repair phases appear only when actual recovery emits them.
 
 Recovery can use the optional hook:
 

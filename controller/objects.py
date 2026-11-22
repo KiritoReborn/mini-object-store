@@ -21,8 +21,8 @@ from fastapi.concurrency import run_in_threadpool
 from starlette.responses import FileResponse, JSONResponse, MalformedRangeHeader, RangeNotSatisfiable
 
 from . import config, database as db, telemetry
-from .models import MetadataPatch, StoreError, parse_metadata, safe_content_type, safe_filename
-from .placement import InsufficientWorkers, choose_workers
+from .models import ErrorResponse, MetadataPatch, StoreError, parse_metadata, safe_content_type, safe_filename
+from .placement import InsufficientWorkers, choose_workers, heartbeat_is_fresh
 
 router = APIRouter(prefix="/api/v1/objects", tags=["objects"])
 log = logging.getLogger("controller")
@@ -87,11 +87,18 @@ async def iter_chunks(file: UploadFile) -> AsyncIterator[bytes]:
 
 def public_manifest(obj: dict) -> dict:
     result = {k: v for k, v in obj.items() if k != "chunks"}
-    result["chunks"] = [{"chunk_id": c["chunk_id"], "index": c["chunk_index"],
-        "size": c["size"], "sha256": c["sha256"],
-        "workers": [r["worker_id"] for r in c["replicas"] if r["state"] == "HEALTHY"],
-        "replicas": [{k: r[k] for k in ("worker_id", "state", "worker_status", "last_verified_at")}
-                     for r in c["replicas"]]} for c in obj["chunks"]]
+    result["chunks"] = []
+    for chunk in obj["chunks"]:
+        healthy = [r for r in chunk["replicas"] if r["state"] == "HEALTHY"]
+        result["chunks"].append({
+            "chunk_id": chunk["chunk_id"], "index": chunk["chunk_index"],
+            "size": chunk["size"], "sha256": chunk["sha256"],
+            "workers": [r["worker_id"] for r in healthy],
+            "available_workers": [r["worker_id"] for r in healthy
+                                  if r["worker_status"] == "ALIVE" and heartbeat_is_fresh(r["last_heartbeat"])],
+            "replicas": [{k: r[k] for k in ("worker_id", "state", "worker_status", "last_verified_at")}
+                         for r in chunk["replicas"]],
+        })
     return result
 
 
@@ -122,12 +129,20 @@ async def discard_object(http: httpx.AsyncClient, object_id: str) -> None:
         for replica in chunk["replicas"]:
             await _delete_copy(http, chunk["chunk_id"], replica)
     await _run_sync(db.delete_object_record, object_id)
+    if obj["status"] == "DELETING":
+        log.info("OBJECT_DELETED object=%s", object_id)
 
 
 async def cleanup_abandoned(http: httpx.AsyncClient) -> None:
-    for oid in await _run_sync(db.get_abandoned_object_ids):
-        async with object_lock(oid):
-            await discard_object(http, oid)
+    """Retry persistent cleanup while the controller is running."""
+    while True:
+        try:
+            for oid in await _run_sync(db.get_abandoned_object_ids):
+                async with object_lock(oid):
+                    await discard_object(http, oid)
+        except Exception:
+            log.exception("ABANDONED_OBJECT_CLEANUP_FAILED")
+        await asyncio.sleep(config.RECONCILE_INTERVAL)
 
 
 @contextmanager
@@ -346,10 +361,26 @@ async def patch_metadata(object_id: str, body: MetadataPatch):
         return public_manifest(await _run_sync(ready_manifest, object_id))
 
 
-@router.get("/{object_id}", responses={
-    400: {"description": "INVALID_RANGE: malformed Range header"},
+_FILE_BODY = {"schema": {"type": "string", "format": "binary"}}
+_RANGE_HEADER = {"schema": {"type": "string"}}
+_ATTACHMENT_HEADERS = {
+    name: {"schema": {"type": "string"}}
+    for name in ("Content-Disposition", "X-Object-SHA256", "ETag")
+}
+
+
+@router.get("/{object_id}", response_class=Response, responses={
+    200: {"description": "Verified object bytes with the stored media type",
+          "content": {"application/octet-stream": _FILE_BODY}, "headers": _ATTACHMENT_HEADERS},
+    206: {"description": "One or more byte ranges from the verified object; a single range uses the stored media type",
+          "content": {"application/octet-stream": _FILE_BODY, "multipart/byteranges": _FILE_BODY},
+          "headers": {**_ATTACHMENT_HEADERS, "Content-Range": _RANGE_HEADER}},
+    400: {"description": "INVALID_RANGE: malformed Range header", "model": ErrorResponse},
+    404: {"description": "Object does not exist or is no longer public", "model": ErrorResponse},
     416: {"description": "RANGE_NOT_SATISFIABLE: no bytes at the requested offset",
+          "model": ErrorResponse,
           "headers": {"Content-Range": {"schema": {"type": "string"}, "example": "bytes */100"}}},
+    503: {"description": "Object or temporary download storage is unavailable", "model": ErrorResponse},
 })
 async def download_object(request: Request, object_id: str):
     async with object_lock(object_id):
@@ -374,8 +405,10 @@ async def download_object(request: Request, object_id: str):
 @router.delete("/{object_id}", status_code=204)
 async def delete_object(request: Request, object_id: str):
     async with object_lock(object_id):
-        await _run_sync(ready_manifest, object_id)
-        await _run_sync(db.set_object_state, object_id, "DELETING")
+        obj = await _run_sync(db.get_object_manifest, object_id)
+        if obj is None or obj["status"] not in {"READY", "DELETING"}:
+            raise StoreError(404, "OBJECT_NOT_FOUND", "Object does not exist")
+        if obj["status"] == "READY":
+            await _run_sync(db.set_object_state, object_id, "DELETING")
         await discard_object(request.app.state.http, object_id)
-    log.info("OBJECT_DELETED object=%s", object_id)
     return Response(status_code=204)
