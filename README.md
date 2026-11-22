@@ -48,16 +48,37 @@ Run the commands below from the repository root (the folder containing `compose.
 
 ### 2. Start the stack
 
-**For evaluation, use the full demo.** First configure a private owner key in the repository root:
+**For evaluation, configure the owner key before starting Docker Compose.** The local demo needs one setting in a plain-text file named `.env` beside `compose.yaml`. A fresh clone does not include your private key. Keep an existing `ARTAUD_API_KEY` if it is at least 32 characters long. Leave other settings in place.
 
-- **Windows (PowerShell):** Run the command below. It creates a key if needed and preserves the existing key. Omitting `-FrontendOrigin` preserves the allowed origins. Supplying that argument replaces `ARTAUD_ALLOWED_ORIGINS` with the specified origin.
-- **macOS/Linux:** If your root `.env` already contains `ARTAUD_API_KEY`, reuse it. Otherwise run `openssl rand -hex 32`, then add `ARTAUD_API_KEY=<generated value>` to `.env`, replacing the placeholder and preserving other entries.
+**macOS/Linux**
 
-Windows key setup:
+1. From the repository root, run the command below to generate a complete line with a random 64-character key. Copy the whole output line privately.
+
+   ```sh
+   openssl rand -hex 32 | sed 's/^/ARTAUD_API_KEY=/'
+   ```
+
+2. Run `nano .env`. On a fresh clone, paste the line as the first line of the new file. In an existing file, add it only if the key is missing, or replace the existing key line if its value is too short. Keep one `ARTAUD_API_KEY=` entry.
+3. Press **Ctrl+O**, **Enter**, then **Ctrl+X** to save and exit.
+
+**Windows (PowerShell)**
+
+From the repository root, run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure-Demo.ps1
+notepad .env
 ```
+
+The helper creates the file and generates a key if none is configured. In Notepad, find the `ARTAUD_API_KEY=` line for the dashboard step below. Running the helper without `-FrontendOrigin` preserves existing allowed origins. Supplying that argument replaces the allowed-origins setting.
+
+For either platform, the saved line has this format (the placeholder stands for your generated key):
+
+```dotenv
+ARTAUD_API_KEY=<your-generated-key>
+```
+
+The local dashboard uses the same origin as the controller, so you can leave `ARTAUD_ALLOWED_ORIGINS` unset. The controls overlay supplies the worker and controller feature flags.
 
 Start or upgrade the **entire stack** with the controls overlay. This enables **Start**, **Stop**, and **Restart** for the four workers and **Corrupt this copy** for eligible replicas. The overlay mounts the Docker socket into the controller and enables fault injection on the workers.
 
@@ -84,11 +105,11 @@ Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**.
 
 1. Choose **Connection settings**.
 2. For the local dashboard, leave **Backend HTTPS address** empty to use the controller serving the page.
-3. If an owner key is configured, enter only the value after `ARTAUD_API_KEY=` from the local `.env`.
+3. For the full demo, open the root `.env` with `nano .env` (macOS/Linux) or `notepad .env` (Windows). Copy **only the value after the first `=`** on the `ARTAUD_API_KEY=` line into **Owner access key**. Include any trailing `=` characters in the value. For the base stack with no key configured, leave this field empty.
 4. Choose **Test connection → Connect backend**.
 5. Open **Cluster → Manage workers** to see the worker controls. Wait for the workers to finish JOINING and become available. Nonempty uploads need at least two eligible workers.
 
-On Windows, view the local key privately with `notepad .env`. The key clears on page reload and must be entered again. Keep it out of Git, screenshots and `VITE_` variables. API documentation is at **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**; a healthy `/health` response confirms the controller is up, not that every worker or replica is ready.
+The dashboard clears the key on page reload. If you change the key in `.env` after startup, rerun the full demo Compose command from step 2 to apply it, then enter the new value in **Connection settings**. Keep it out of Git, screenshots and `VITE_` variables. API documentation is at **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**; a healthy `/health` response confirms the controller is up, not that every worker or replica is ready.
 
 ### 4. Check it works
 
