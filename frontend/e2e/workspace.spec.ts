@@ -1293,23 +1293,6 @@ test("replica fault permits both copies after separate confirmation", async ({ p
   const faultPath = (worker: string) =>
     `/api/v1/demo/workers/${worker}/chunks/${chunk}/corrupt`;
   const holders = ["worker1", "worker3"];
-  await page.route(`**/api/v1/objects/${object.object_id}/metadata`, (route) =>
-    requests.length
-      ? route.fulfill({ json: { ...object, chunks: [{
-          chunk_id: chunk,
-          index: 0,
-          size: 1000000,
-          sha256: "b".repeat(64),
-          workers: holders.filter((worker) => !requests.includes(faultPath(worker))),
-          replicas: holders.map((worker) => ({
-            worker_id: worker,
-            state: requests.includes(faultPath(worker)) ? "CORRUPT" : "HEALTHY",
-            worker_status: "ALIVE",
-            last_verified_at: requests.includes(faultPath(worker)) ? null : object.created_at,
-          })),
-        }] } })
-      : route.fallback(),
-  );
   await page.route(`**${faultPath("*")}`, (route) => {
     const request = route.request();
     requests.push(new URL(request.url()).pathname);
@@ -1333,15 +1316,15 @@ test("replica fault permits both copies after separate confirmation", async ({ p
   await button.click();
   await dialog.getByRole("button", { name: "Corrupt this copy", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText(/Replica marked corrupt on worker1/)).toBeVisible();
-  await expect(table.getByText("Corrupt", { exact: true })).toBeVisible();
+  await expect(page.getByText(/One stored byte changed on worker1/)).toBeVisible();
+  await expect(table.getByText("Corrupt", { exact: true })).toHaveCount(0);
   const survivingCopy = table.getByRole("button", { name: "Corrupt this copy on worker3 for chunk 1" });
   expect(requests).toEqual([faultPath("worker1")]);
   await expect(survivingCopy).toBeEnabled({ timeout: 2000 });
   await survivingCopy.click();
   await expect(dialog.getByText(/one stored byte/)).toContainText("worker3");
   await dialog.getByRole("button", { name: "Corrupt this copy", exact: true }).click();
-  await expect(table.getByText("Corrupt", { exact: true })).toHaveCount(2);
+  await expect(dialog).toHaveCount(0);
   expect(requests).toEqual(holders.map(faultPath));
 });
 

@@ -99,7 +99,7 @@ Default heartbeat/death/reconcile intervals are 5/15/5 seconds, with additional 
 docker compose -f compose.yaml logs --tail 100 controller worker2
 ```
 
-A corruption action affects one `(chunk_id, worker_id)` replica. Two workers listed in the same chunk row hold the same chunk. If one damaged copy is deleted during reconciliation, its record can change from CORRUPT to MISSING. A missing record tracks the absent expected data; it does not imply a new corruption click.
+A corruption action changes one byte on one `(chunk_id, worker_id)` replica. The injection appears in activity immediately. The recorded health changes when a download or the periodic inventory reads and detects the damaged copy. To demonstrate download fallback, corrupt the lowest-ID healthy holder of a chunk, then download before the next inventory pass and compare the downloaded checksum with the original. Two workers listed in the same chunk row hold the same chunk. If one damaged copy is deleted during reconciliation, its record can change from CORRUPT to MISSING. A missing record tracks the absent expected data; it does not imply a new corruption click.
 
 For exact physical two-copy/hash checks, use the isolated real-container acceptance harness in [development and testing](DEVELOPMENT.md#real-five-container-acceptance). The UI walkthrough checkboxes are operator notes, not automated proof. Detailed transfer motion appears only for observed events from real operations.
 

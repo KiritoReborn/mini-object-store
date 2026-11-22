@@ -149,7 +149,7 @@ export function ObjectPlacement({
       await pending;
       setFault(null);
       notify(
-        `Replica marked corrupt on ${fault.workerId}. Download the file to check whether it is still readable.`,
+        `One stored byte changed on ${fault.workerId}. Download the file to check whether it is still readable.`,
         "success",
       );
     } catch (error) {

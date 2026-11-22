@@ -173,7 +173,7 @@ def test_fault_control_can_corrupt_the_last_available_copy(fault_demo, peer_stat
     assert response.status_code == 200, response.text
     assert fault_demo.calls == [("POST", f"{WORKER_ORIGIN}/internal/demo/corrupt/{chunk_id}")]
     assert fault_demo.disk.read_bytes() == bytes([DATA[0] ^ 1]) + DATA[1:]
-    assert [r["state"] for r in db.get_replicas(chunk_id)] == ["CORRUPT", peer_state]
+    assert [r["state"] for r in db.get_replicas(chunk_id)] == ["HEALTHY", peer_state]
     assert fault_demo.client.get(fault_demo.path, headers=HEADERS).status_code == 503
 
 
@@ -186,7 +186,7 @@ def test_fault_control_can_corrupt_both_copies_before_repair(fault_demo):
 
     corrupted = bytes([DATA[0] ^ 1]) + DATA[1:]
     assert fault_demo.disk.read_bytes() == fault_demo.secondary[chunk_id] == corrupted
-    assert {r["state"] for r in db.get_replicas(chunk_id)} == {"CORRUPT"}
+    assert {r["state"] for r in db.get_replicas(chunk_id)} == {"HEALTHY"}
     download = client.get(fault_demo.path, headers=HEADERS)
     assert download.status_code == 503
     assert download.headers["content-type"] == "application/json"
@@ -221,16 +221,17 @@ def test_fault_control_falls_back_and_recovery_repairs(fault_demo, monkeypatch, 
     assert (event["worker_id"], event["chunk_id"], event["size"]) == ("worker1", chunk_id, len(DATA))
     manifest = client.get(fault_demo.path + "/metadata", headers=HEADERS).json()
     assert {r["worker_id"]: r["state"] for r in manifest["chunks"][0]["replicas"]} == {
-        "worker1": "CORRUPT", "worker2": "HEALTHY",
+        "worker1": "HEALTHY", "worker2": "HEALTHY",
     }
     overview = client.get("/api/v1/overview", headers=HEADERS).json()
-    assert overview["corrupt_replicas"] == overview["under_replicated_chunks"] == 1
-    assert any(row["kind"] == "replica_state" and row["state"] == "CORRUPT" for row in activity)
+    assert overview["corrupt_replicas"] == overview["under_replicated_chunks"] == 0
+    assert not any(row["kind"] == "replica_state" and row["state"] == "CORRUPT" for row in activity)
     fault_demo.calls.clear()
     download = client.get(fault_demo.path, headers=HEADERS)
     assert download.status_code == 200 and download.content == DATA
     assert download.headers["x-object-sha256"] == hashlib.sha256(DATA).hexdigest()
-    assert fault_demo.calls == [("GET", f"http://worker2:8001/internal/chunks/{chunk_id}")]
+    assert fault_demo.calls == [("GET", f"{WORKER_ORIGIN}/internal/chunks/{chunk_id}"),
+                                ("GET", f"http://worker2:8001/internal/chunks/{chunk_id}")]
     assert db.get_replicas(chunk_id)[0]["state"] == "CORRUPT"
 
     runtime = recovery._Runtime(client=httpx.AsyncClient(transport=fault_demo.transport))

@@ -292,14 +292,14 @@ async def _inventory_chunk(worker_id: str, chunk_id: str) -> bool:
         return True
 
 
-async def _missing_inventory_rows(worker_id: str, inventory: set[str], *, joining: bool) -> bool:
+async def _verify_expected_replicas(worker_id: str, inventory: set[str], *, joining: bool) -> bool:
     complete = True
     if joining:
         snapshots = await _db(db.get_chunks_for_repair)
     else:
         snapshots = await _db(db.get_healthy_chunks_for_worker, worker_id)
     for snapshot in snapshots:
-        if snapshot["chunk_id"] in inventory:
+        if joining and snapshot["chunk_id"] in inventory:
             continue
         try:
             async with object_lock(snapshot["object_id"]):
@@ -312,13 +312,13 @@ async def _missing_inventory_rows(worker_id: str, inventory: set[str], *, joinin
                 if joining:
                     await _mark_bad(chunk, worker_id, "MISSING")
                 elif replica["state"] == "HEALTHY":
-                    # A live worker may receive a copy after listing its inventory.
+                    # Check actual bytes even when the worker lists the expected chunk.
                     result = await _fetch_verified(worker_id, chunk)
                     if result.state:
                         await _mark_bad(chunk, worker_id, result.state)
         except Exception:
             complete = False
-            log.exception("INVENTORY_MISSING_CHECK_FAILED chunk_id=%s worker_id=%s", snapshot["chunk_id"], worker_id)
+            log.exception("INVENTORY_REPLICA_CHECK_FAILED chunk_id=%s worker_id=%s", snapshot["chunk_id"], worker_id)
     return complete
 
 
@@ -332,7 +332,7 @@ async def _reconcile_worker(worker: dict, *, joining: bool) -> None:
     for chunk_id in sorted(inventory):
         try:
             if not joining:
-                # Live scans collect late writes/orphans, not an optional scrubber.
+                # Recorded healthy copies are verified together below.
                 rows = await _db(db.get_replicas, chunk_id)
                 known = await _db(db.known_chunk_ids)
                 if chunk_id in known and any(r["worker_id"] == worker_id and r["state"] == "HEALTHY" for r in rows):
@@ -343,12 +343,12 @@ async def _reconcile_worker(worker: dict, *, joining: bool) -> None:
             complete = False
             log.exception("INVENTORY_CHUNK_FAILED chunk_id=%s worker_id=%s", chunk_id, worker_id)
     if not joining:
-        await _missing_inventory_rows(worker_id, inventory, joining=False)
+        await _verify_expected_replicas(worker_id, inventory, joining=False)
     elif complete:
         current = await _worker(worker_id)
         if current is None or current["base_url"] != worker["base_url"] or current["status"] != "JOINING":
             return
-        if not await _missing_inventory_rows(worker_id, inventory, joining=True):
+        if not await _verify_expected_replicas(worker_id, inventory, joining=True):
             return
         # Heartbeats may age or registrations may change during a large inventory.
         current = await _worker(worker_id)

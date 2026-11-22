@@ -809,16 +809,21 @@ async def test_successful_put_with_wrong_readback_is_not_recorded_healthy(cluste
     assert (chunk["chunk_id"], "worker2") not in cluster.state.replicas
 
 
-async def test_live_inventory_detects_and_repairs_missing_copy_without_download(cluster):
+@pytest.mark.parametrize("damage", ["MISSING", "CORRUPT"])
+async def test_live_inventory_detects_and_repairs_damage_without_download(cluster, damage):
     chunk = cluster.add_chunk(("worker1", "worker2"))
     cid = chunk["chunk_id"]
-    del cluster.state.data["worker2", cid]
+    if damage == "MISSING":
+        del cluster.state.data["worker2", cid]
+    else:
+        data = cluster.state.data["worker2", cid]
+        cluster.state.data["worker2", cid] = bytes([data[0] ^ 1]) + data[1:]
     cluster.runtime.next_inventory = cluster.clock.tick
 
     await recovery.reconcile_joining_workers()
-    assert cluster.state.replicas[cid, "worker2"] == "MISSING"
+    assert cluster.state.replicas[cid, "worker2"] == damage
     assert cluster.state.workers["worker2"]["status"] == "ALIVE"
-    assert ("GET", "worker1", cid) not in cluster.state.history
+    assert ("GET", "worker1", cid) in cluster.state.history
 
     await recovery.repair_pass()
     holders = cluster.healthy(chunk)

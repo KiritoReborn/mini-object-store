@@ -120,7 +120,6 @@ async def corrupt_replica(request: Request, worker_id: str, chunk_id: str):
         if (response.status_code != 200 or not isinstance(acknowledgment, dict)
                 or any(acknowledgment.get(k) != v for k, v in result.items())):
             raise StoreError(503, "FAULT_INJECTION_FAILED", "Worker did not confirm the demo fault")
-        await _run_sync(db.set_replica_state, chunk_id, worker_id, "CORRUPT")
         telemetry.record_event("fault_injected", object_id=object_id, worker_id=worker_id,
                                chunk_id=chunk_id, size=chunk["size"], detail="One stored byte was changed for the demo")
         return result
