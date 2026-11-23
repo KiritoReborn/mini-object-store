@@ -238,6 +238,92 @@ dependencies. The 50 MB check establishes end-to-end correctness at that
 size. The project did not measure storage throughput or peak memory.
 
 \clearpage
+\reportsection{Difficulties faced during development}
+
+\topic{Distinguishing failure scenarios}
+Recovery was the most challenging part of the project because similar
+symptoms could have different causes. A chunk could be absent from disk,
+present with damaged bytes, or temporarily unreachable because its worker
+was offline. We encountered these distinctions when we began combining
+failures during deployment and testing. An absent chunk is marked
+\code{MISSING} and a failed integrity check can mark a copy
+\code{CORRUPT}. A worker outage is tracked separately so a timeout does
+not cause valid data to be discarded.
+
+\topic{Separating fault injection from detection}
+Our first version of \textbf{Corrupt this copy} immediately marked the
+replica as \code{CORRUPT}. The dashboard showed corruption followed by
+repair, so we initially took that as evidence of detection. The demo
+action itself had supplied the diagnosis. A successful injection now
+changes one stored byte and records the action. A later download or
+background scan verifies the copy and can independently classify it as
+damaged.
+
+\topic{Detecting damage after a successful download}
+A successful download could hide a damaged replica. When the controller
+read the healthy copy first, the user got the correct file even though
+only one valid copy remained. We added periodic verification of live
+workers' stored copies against the controller's checksums. Heartbeats tell
+us whether a worker has communicated recently. Inventory and checksum
+checks tell us which expected chunks it has and whether their bytes
+match.
+
+\topic{Reconciling a worker that returns}
+After roughly 15 seconds without a heartbeat, the controller can mark a
+worker \code{DEAD} and use surviving valid copies to restore redundancy.
+When the worker returns, the controller checks its actual inventory before
+readmission. An expected chunk may be missing, a returning copy may be
+the only surviving source, or repair may already have created two healthy
+copies elsewhere. The controller can remove a surplus copy once it
+verifies two others. If both copies of a required chunk are damaged and
+no verified source survives, the affected object remains unavailable until
+valid data is restored.
+
+The recovery tests check the evidence behind each outcome, including
+how damage was detected, the number of valid copies after repair, and
+what changed when the offline worker returned.
+
+\clearpage
+\reportsection{Consistency and file transfers}
+
+\topic{Publishing complete uploads}
+A worker can fail after receiving some chunks or between writes of the
+same chunk. The controller keeps the object in \code{UPLOADING} while
+it places replicas and exposes it only after the database can commit
+\code{READY}. A failed or cancelled upload goes through cleanup, and
+uncertain writes can remain tracked for a later attempt. API tests force
+a failed upload and check that clients cannot list or download the
+incomplete object.
+
+\topic{Verifying a download before sending it}
+A missing chunk discovered halfway through a download would otherwise
+leave the client with a partial file and an HTTP success status. The
+controller builds the file in temporary disk storage one verified chunk
+at a time and checks the whole-object hash before sending a response.
+This design uses temporary disk space and adds preparation time before
+the client receives bytes. Tests check that an unreadable object returns
+a JSON \code{503} and cleans up its temporary file. The live run also
+compares the original and retrieved hashes for a 50 MB file.
+
+\topic{Coordinating uploads, repairs and deletions}
+Cleanup during an upload could mistake its chunks for abandoned data.
+At the same time, repair could place a replacement while another request
+was deleting the file. The controller uses a lock per object and rereads
+the relevant state after taking the lock. It protects active uploads and
+can retry cleanup when a worker that missed deletion returns. Tests
+exercise an inventory scan waiting for an upload, deletion waiting for
+repair, and recovery of an interrupted delete.
+
+\topic{Diagnosing the hosted dashboard connection}
+Vercel could serve the dashboard even when the controller on our PC
+was unreachable. We kept the controller's HTTPS address configurable
+in the browser, with a connection test and a separate owner key field.
+The remote dashboard sends API requests directly to the controller
+through the tunnel, and the controller allows requests from configured
+browser origins. The local dashboard uses the same origin as the API,
+so the local demonstration can run without the tunnel.
+
+\clearpage
 \reportsection{Dashboard walkthrough}
 
 \begingroup
