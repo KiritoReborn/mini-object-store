@@ -1,9 +1,9 @@
 \documentclass[11pt,a4paper]{article}
-\usepackage[a4paper,top=24mm,bottom=24mm,left=21mm,right=21mm]{geometry}
+\usepackage[a4paper,top=22mm,bottom=22mm,left=21mm,right=21mm]{geometry}
 \usepackage{graphicx,xcolor,booktabs,tabularx,fancyhdr,lastpage}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta}
-\usepackage{caption,float}
+\usepackage{caption}
 \usepackage[colorlinks=true,linkcolor=black,urlcolor=teal,pdftitle={Artaud - Mini Distributed Cloud Object Store},pdfauthor={Jaya Raghunandhan Reddy P and Varanasi Harshith Raj}]{hyperref}
 
 \definecolor{ink}{HTML}{162C25}
@@ -15,6 +15,10 @@
 \setlength{\parskip}{5pt}
 \setlength{\headheight}{16pt}
 \setlength{\emergencystretch}{2em}
+\renewcommand{\topfraction}{.86}
+\renewcommand{\bottomfraction}{.5}
+\renewcommand{\textfraction}{.10}
+\renewcommand{\floatpagefraction}{.80}
 \renewcommand{\arraystretch}{1.17}
 \setcounter{tocdepth}{1}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
@@ -73,8 +77,8 @@ Varanasi Harshith Raj & BT2024177 \\
 \vfill
 {\color{linegreen}\rule{\linewidth}{.6pt}}\par
 {\small\sffamily\color{slate}
-One controller \enspace\textbullet\enspace Four workers \enspace\textbullet\enspace Two verified copies per chunk\hfill
-\href{\repo}{Project repository}}
+One controller \enspace\textbullet\enspace Four workers \enspace\textbullet\enspace Two verified copies per chunk\par
+\href{\repo}{\nolinkurl{https://github.com/KiritoReborn/mini-object-store}}}
 \end{titlepage}
 \setcounter{page}{2}
 
@@ -134,6 +138,7 @@ uses curl and the dashboard as clients, \path{/api/v1/overview} for cluster
 status, and \path{/api/v1/objects/{id}/metadata} for placement. The dashboard
 and optional owner key were added to the original API-first plan.
 
+\begin{minipage}{\linewidth}
 \section{Architecture and design decisions}\label{sec:arch}
 The controller serves the React dashboard and JSON API. SQLite stores the
 object manifests. Workers register and exchange chunks with the controller
@@ -150,6 +155,7 @@ Varanasi Harshith Raj & Worker service and recovery \\
 Both authors & Integration and demo verification \\
 \bottomrule
 \end{tabularx}
+\end{minipage}
 
 \begin{figure}[htbp]
 \centering
@@ -290,7 +296,8 @@ This \code{GET} response was captured just after upload and the
       "chunk_id": "494c0f83-55bd-4a63-8572-fc630ac72ac2_0",
       "index": 0,
       "size": 1000000,
-      "workers": ["worker1", "worker2"]
+      "workers": ["worker1", "worker2"],
+      "available_workers": ["worker1", "worker2"]
     }
   ]
 }
@@ -370,7 +377,7 @@ original SHA-256 while worker2 was stopped. The controller restored two
 available copies per chunk on surviving workers. Figure~\ref{fig:outage}
 shows worker2 offline and readmitted.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \begin{minipage}[t]{.46\linewidth}
 \centering
@@ -382,7 +389,7 @@ shows worker2 offline and readmitted.
 \textbf{Worker2 readmitted}\par\smallskip
 \figureimage{\linewidth}{worker-rejoined.png}
 \end{minipage}
-\caption{The dashboard shows worker2's state. Independent disk checks confirmed exactly two SHA-256-valid copies per chunk of the 50 MB object. Worker2 shows zero copies after its surplus copies were removed. The controller leaves the two verified copies where they are.}
+\caption{Worker2 shows zero copies after surplus cleanup. Independent disk checks confirmed two SHA-256-valid copies per 50 MB object chunk. In the timed run, dashboard counts on workers 1, 3 and 4 went from 26, 28 and 27 while worker2 was offline to 26, 39 and 39 after readmission.}
 \label{fig:outage}
 \end{figure}
 
@@ -395,7 +402,7 @@ controller's download log. The bytes returned to the caller matched
 the original object's SHA-256. The activity timestamps put detection
 and repair completion 3.78 seconds apart (Figure~\ref{fig:corruption}).
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \begin{minipage}[t]{.43\linewidth}
 \vspace{0pt}
@@ -422,21 +429,37 @@ Restored hash & \code{59b3a1cb08de} \\
 
 Both copies passed an independent disk check. Restored locations were
 worker1, worker4.
+
+\textbf{Follow-up timeline}
+
+\begin{tabularx}{\linewidth}{@{}Y l@{}}
+\toprule
+\textbf{Stage} & \textbf{UTC or elapsed time} \\
+\midrule
+Placement object created & \code{10:26:18.352} UTC \\
+Worker2 stop command issued & Elapsed timer starts \\
+Replica deficit reached zero & 17.88 s after stop \\
+Fault injected after readmission & \code{10:26:49.682} UTC \\
+\bottomrule
+\end{tabularx}
+
+Worker2 was first observed \code{DEAD} 17.71 s after stop. It passed
+readmission 4.94 s after its start command.
 \end{minipage}
-\caption{Technical events from the dashboard, newest first. The event time and disk hashes distinguish injection, detection and repair.}
+\caption{Dashboard events use local time (UTC+5:30). The table uses UTC. The ``Copy transfer unsuccessful'' event marks the unverified response from the download that detected the damage. The 512-event journal evicted older entries during the 50 MB workload.}
 \label{fig:corruption}
 \end{figure}
 
-\paragraph{Separate terminal test.}
-We stopped worker2 and corrupted the other copy on worker1. The
-download returned \code{503 OBJECT\_UNAVAILABLE} because the controller
+\subsection{Failure limit when no valid copy is reachable}
+In a separate terminal test, we stopped worker2 and corrupted the other copy on worker1. The
+download returned \verb|503 OBJECT_UNAVAILABLE| because the controller
 could not find verified bytes. After worker2 returned with its intact
 copy, the file downloaded with its original SHA-256 and
 recovery restored two valid physical replicas.
 
 \subsection{Measured timings}
-Times describe one loopback run on Docker Desktop with a 50,000,000-byte
-synthetic binary. Upload time includes receiving the final response.
+The table below describes the earlier loopback run at \code{\verifiedcommit}
+on Docker Desktop with a 50,000,000-byte synthetic binary. Upload time includes receiving the final response.
 Download time includes controller preparation and the receipt of the
 entire body. Outage timings start when the stop command is issued.
 The API was sampled roughly every 60 milliseconds. These observations

@@ -72,7 +72,11 @@ docker compose stop
      docker compose exec -T worker1 sh -c 'printf x >> "/data/chunks/$1"' artaud-demo "$chunk_id"
    ```
 
-   Download and verify the file again. **Recent activity → Replicas & recovery** shows detection and repair. If the healthy copy was read first, wait for the periodic inventory scan. With the controls overlay, **Corrupt this copy** injects a fault from the dashboard.
+   The metadata response includes both `workers` (recorded healthy locations) and `available_workers` (currently available locations). If the first chunk lacks a suitable pair, `jq -e` stops the shell example before it writes to disk.
+
+   On Windows, use **Corrupt this copy** with the controls overlay, or run the POSIX commands in WSL or Git Bash.
+
+   Download and verify the file again. **Recent activity → Replicas & recovery** shows detection and repair. If the healthy copy was read first, allow up to about 60 seconds for the next scheduled integrity scan, plus any time it needs to finish.
 5. Delete the demo file and confirm it disappears from **Files**. The live test also checks cleanup on disk.
 
 ### Enable dashboard worker controls
@@ -107,7 +111,7 @@ The hosted frontend needs the controller PC, Docker, and the ngrok tunnel to be 
 
 ## HTTP API
 
-The object API is served under `http://127.0.0.1:8000/api/v1/objects`. When an owner key is configured, send it in the `X-Artaud-Key` header. [OpenAPI reference](http://127.0.0.1:8000/docs) · [HTTP contract](contracts/api-contract.md)
+Use the dashboard or curl to access the object API at `http://127.0.0.1:8000/api/v1/objects`. When an owner key is configured, send it in the `X-Artaud-Key` header. [OpenAPI reference](http://127.0.0.1:8000/docs) · [HTTP contract](contracts/api-contract.md)
 
 | Method | Path | Operation | Success |
 | --- | --- | --- | --- |
@@ -140,8 +144,6 @@ curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -X DELETE "$api/$object_id"
 ```
 
 </details>
-
-**Clients** include the dashboard and curl.
 
 ## Run tests
 

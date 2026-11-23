@@ -138,7 +138,17 @@ Scripts under `frontend/e2e/live-*.mjs` are explicitly invoked checks against ac
 
 On 23 November 2026, a clean snapshot at `20357e2` passed 369 backend tests, 42 frontend unit tests and 43 Chromium cases. Pytest skipped the opt-in live test, which passed separately with the full five-container, 50 MB and real-browser workflow. The backend suite emitted one Starlette test-client deprecation warning. [Verification report](report/artaud-report.pdf)
 
-A separate fresh clone at `8ea6280` also passed 369 backend tests, 42 frontend unit tests and 43 Chromium cases. The isolated Docker Desktop loopback run uploaded one 50,000,000-byte object in 3.53 s and downloaded it in 0.88 s with matching SHA-256. After the stop command, worker2 was first observed `DEAD` at 17.21 s, and the replica deficit reached zero at 19.09 s. Verified rejoin took 6.07 s from the start command. [Report and evidence](report/artaud-report.pdf)
+A separate fresh clone at `8ea6280` also passed 369 backend tests, 42 frontend unit tests and 43 Chromium cases. The isolated Docker Desktop loopback run used one 50,000,000-byte object with matching upload and download SHA-256.
+
+| Measurement | Time |
+| --- | ---: |
+| Upload 50 MB | 3.53 s |
+| Download 50 MB | 0.88 s |
+| Stop command to first `DEAD` observation | 17.21 s |
+| Stop command to zero replica deficit | 19.09 s |
+| Start command to verified readmission | 6.07 s |
+
+See the follow-up corruption and terminal recovery results in the [report](report/artaud-report.pdf).
 
 ## Activity contract
 
