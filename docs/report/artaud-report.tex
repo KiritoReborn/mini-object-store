@@ -440,10 +440,9 @@ worker1, worker4.
 In a separate terminal test, we stopped worker2 and damaged worker1's copy.
 The download returned HTTP 503.
 
-{\small
+{\footnotesize
 \begin{verbatim}
-{"error":"OBJECT_UNAVAILABLE",
- "message":"No verified readable copy of a required chunk"}
+{"error":"OBJECT_UNAVAILABLE","message":"No verified readable copy of a required chunk"}
 \end{verbatim}
 }
 
@@ -456,7 +455,7 @@ Download time includes preparation and transfer. Heartbeat phase and polling
 affect when state changes are first observed.
 
 \begin{minipage}{\linewidth}
-\captionof{table}{Seconds measured in the timed run at \href{\repo/tree/8ea6280}{\code{\verifiedcommit}} and the follow-up run.}
+\captionof{table}{Timed run at \href{\repo/tree/8ea6280}{\code{\verifiedcommit}} and follow-up with the updated dashboard. Both used the same controller and worker code.}
 \label{tab:timings}
 \begin{tabularx}{\linewidth}{@{}Y r r@{}}
 \toprule
@@ -474,22 +473,7 @@ Start command to verified readmission & \rejoinseconds & 4.94 \\
 In the timed run, the first \code{DEAD} and zero-deficit observations were
 1.88 seconds apart.
 
-\begin{minipage}{\linewidth}
-\captionof{table}{Follow-up event order. The recorder captured UTC for creation and injection and measured recovery from the relevant command.}
-\begin{tabularx}{\linewidth}{@{}Y l l@{}}
-\toprule
-\textbf{Event} & \textbf{UTC} & \textbf{Elapsed observation} \\
-\midrule
-Placement object created & \code{10:26:18.352} & \textemdash{} \\
-Worker2 stop issued & \textemdash{} & \textemdash{} \\
-Worker2 observed \code{DEAD} & \textemdash{} & 17.71 s after stop \\
-Replica deficit reached zero & \textemdash{} & 17.88 s after stop \\
-Worker2 start issued & \textemdash{} & \textemdash{} \\
-Worker2 readmitted & \textemdash{} & 4.94 s after start \\
-Fault injected & \code{10:26:49.682} & \textemdash{} \\
-\bottomrule
-\end{tabularx}
-\end{minipage}
+In the follow-up run, the placement object was created at \code{10:26:18.352} UTC and the fault was injected at \code{10:26:49.682} UTC.
 
 \subsection{Verification and reproduction}
 The fresh clone at \code{\verifiedcommit} passed 369 backend tests,
@@ -583,5 +567,6 @@ and add backup or version retention for recovery from deletion.
 \item \href{\repo/blob/master/README.md}{Local demo commands},
 \href{\repo/blob/master/docs/DEVELOPMENT.md}{test instructions}, and
 \href{\repo/blob/master/contracts/api-contract.md}{HTTP contract}.
+\item \href{\repo/tree/8ea6280}{Source snapshot for the fresh Compose demonstration}.
 \end{itemize}
 \end{document}
