@@ -1,6 +1,6 @@
 # Development and testing
 
-[Setup](../README.md#setup-and-start) · [Architecture](ARCHITECTURE.md) · [API contract](../contracts/api-contract.md)
+[Setup](../README.md#run-locally) · [Architecture](ARCHITECTURE.md) · [API contract](../contracts/api-contract.md)
 
 ## Ownership and code map
 
@@ -136,7 +136,7 @@ Scripts under `frontend/e2e/live-*.mjs` are explicitly invoked checks against ac
 
 ### Dated verification
 
-The 14 November integrated clean checkout passed 299 backend tests (1 live skip), 28 frontend unit tests and 29 Chromium cases, plus the actual five-container 50 MB/browser workflow. A later verification on 19 November 2026 recorded 361 backend tests passing (live check skipped), including 49 API tests for conditional-download/fault-injection behavior. Those are earlier execution records, not a fresh run or availability promise. One Starlette/httpx deprecation warning was recorded. Run the commands above for results against your current checkout.
+On 23 November 2026, a clean snapshot at `20357e2` passed 369 backend tests, 42 frontend unit tests and 43 Chromium cases. Pytest skipped the opt-in live test, which passed separately with the full five-container, 50 MB and real-browser workflow. The backend suite emitted one Starlette test-client deprecation warning. [Verification report](report/artaud-report.pdf)
 
 ## Activity contract
 

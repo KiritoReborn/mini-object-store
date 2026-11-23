@@ -1,183 +1,158 @@
-# Artaud — Distributed Object Store
+# Artaud · Mini Distributed Object Store
 
-Upload files, inspect their chunks, stop a worker and observe verified replica recovery. Artaud is a two-person distributed-systems project built with **Python, FastAPI, SQLite, React, TypeScript and Docker Compose**.
+Artaud stores files across four Docker workers. The dashboard shows where each chunk lives and how the controller restores two-copy redundancy after a worker fails. The local demo runs entirely in Docker.
 
-[Setup](#setup-and-start) · [Architecture](docs/ARCHITECTURE.md) · [API](contracts/api-contract.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Run locally](#run-locally) · [Demo checklist](#demo-checklist) · [Test commands](#run-tests) · [Project report](docs/report/artaud-report.pdf)
 
-![Artaud cluster dashboard with a controller and four storage workers](docs/images/cluster-dashboard.png)
+## Run locally
 
-_Actual dashboard capture; counts and availability are observations at capture time._
-
-## What is included
-
-- Six object APIs: multipart upload, download, list, metadata retrieval/update and deletion.
-- Default **1,000,000-byte chunks**, with **two replicas on distinct workers** before an upload becomes READY.
-- SHA-256 verification of chunks and complete objects, read fallback, heartbeat-based failure detection and automatic repair from a surviving good copy.
-- Persistent SQLite metadata and a separate named Docker volume for each of four workers.
-- A file workspace with upload queues, metadata search/editing, chunk inspection, exports, bulk deletion and local checksum verification.
-- A cluster view with real topology, replica states, observed transfers, replay, activity and diagnostics.
-- Optional owner-controlled worker Start/Stop/Restart and deliberate corruption of test replicas for demonstrations.
-
-The controller serves the dashboard locally. Docker runs the controller and all four workers.
-
-## Setup and start
-
-### 1. Requirements and checkout
-
-Install **Git** and **Docker Desktop with Linux containers** (or Docker Engine with Compose v2+). Start Docker before running the project. Node.js is needed only for frontend development; host Python is needed only for the standalone integration test.
-
-For a new checkout:
+Install Git and Docker Compose v2. On Windows or macOS, start Docker Desktop with Linux containers. Run the commands from the repository root.
 
 ```sh
 git clone https://github.com/KiritoReborn/mini-object-store.git
 cd mini-object-store
 ```
 
-For an existing checkout, from its repository root:
+For an existing checkout, update from GitHub.
 
 ```sh
 git switch master
 git pull --ff-only
 ```
 
-The default branch is `master`. If Git reports local edits or a conflict, resolve those before continuing.
+Keep the existing Compose project name to retain its volumes. If you originally used `-p PROJECT`, use it on every Compose command.
 
-Run the commands below from the repository root (the folder containing `compose.yaml`). A normal `git clone` creates a folder named `mini-object-store`, so Docker Compose uses `mini-object-store` as its project name by default. If you downloaded a ZIP or renamed the folder, enter that folder and use the same commands. Compose derives the default project name from the directory.
+### Start the full demo
 
-**Existing installations only:** If you previously started the stack with an explicit project name, keep using it to reuse the same volumes. For example, if your existing project is `cloud_project`, add `-p cloud_project` immediately after `docker compose` in each command. A fresh checkout needs no `-p` flag.
-
-### 2. Start the stack
-
-**For evaluation, configure the owner key before starting Docker Compose.** The local demo needs one setting in a plain-text file named `.env` beside `compose.yaml`. A fresh clone does not include your private key. Keep an existing `ARTAUD_API_KEY` if it is at least 32 characters long. Leave other settings in place.
-
-**macOS/Linux**
-
-1. From the repository root, run the command below to generate a complete line with a random 64-character key. Copy the whole output line privately.
-
-   ```sh
-   openssl rand -hex 32 | sed 's/^/ARTAUD_API_KEY=/'
-   ```
-
-2. Run `nano .env`. On a fresh clone, paste the line as the first line of the new file. In an existing file, add it only if the key is missing, or replace the existing key line if its value is too short. Keep one `ARTAUD_API_KEY=` entry.
-3. Press **Ctrl+O**, **Enter**, then **Ctrl+X** to save and exit.
-
-**Windows (PowerShell)**
-
-From the repository root, run:
+On **Windows**, create or reuse the owner key in PowerShell.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Configure-Demo.ps1
 notepad .env
 ```
 
-The helper creates the file and generates a key if none is configured. In Notepad, find the `ARTAUD_API_KEY=` line for the dashboard step below. Running the helper without `-FrontendOrigin` preserves existing allowed origins. Supplying that argument replaces the allowed-origins setting.
+On **macOS or Linux**, run the following in Terminal. Keep an existing `ARTAUD_API_KEY` if it already has at least 32 characters. Otherwise, use the generated line in `.env` and save the file beside `compose.yaml`.
 
-For either platform, the saved line has this format (the placeholder stands for your generated key):
-
-```dotenv
-ARTAUD_API_KEY=<your-generated-key>
+```sh
+openssl rand -hex 32 | sed 's/^/ARTAUD_API_KEY=/'
+nano .env
 ```
 
-The local dashboard uses the same origin as the controller, so you can leave `ARTAUD_ALLOWED_ORIGINS` unset. The controls overlay supplies the worker and controller feature flags.
+In Nano, press **Ctrl+O**, **Enter** and **Ctrl+X** to save and exit.
 
-Start or upgrade the **entire stack** with the controls overlay. This enables **Start**, **Stop**, and **Restart** for the four workers and **Corrupt this copy** for eligible replicas. The overlay mounts the Docker socket into the controller and enables fault injection on the workers.
+On either platform, start all five services with the demo overlay.
 
 ```sh
 docker compose -f compose.yaml -f compose.controls.yaml up --build -d
 docker compose -f compose.yaml -f compose.controls.yaml ps
 ```
 
-**Normal dashboard only:** To run the controller and four workers with standard storage and recovery, use the base configuration:
+Open the local dashboard. In **Connection settings**, leave **Backend HTTPS address** empty, paste the `ARTAUD_API_KEY` value including any trailing `=` signs, and select **Test connection**, then **Connect backend**. Open **Cluster** and wait for four available workers. A reload clears the key. [Local dashboard](http://127.0.0.1:8000/)
+
+The overlay grants the controller access to the Docker socket and enables deliberate replica corruption. Use the corruption control on disposable demo uploads. Keep `.env` private.
+
+### Start the standard stack
+
+Use the base configuration for storage, downloads, and automatic recovery. Enter the owner key in the dashboard if your existing `.env` sets one.
 
 ```sh
 docker compose -f compose.yaml up --build -d
 ```
 
-**Container controls only:** On an already running base stack, the following command enables the controller’s Docker Start/Stop/Restart actions. The four workers keep their base configuration. Use the full demo command above for **Corrupt this copy**.
+### Check status and stop
 
 ```sh
-docker compose -f compose.yaml -f compose.controls.yaml up -d --no-deps controller
-```
-
-### 3. Open the dashboard and connect
-
-Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**.
-
-1. Choose **Connection settings**.
-2. For the local dashboard, leave **Backend HTTPS address** empty to use the controller serving the page.
-3. For the full demo, open the root `.env` with `nano .env` (macOS/Linux) or `notepad .env` (Windows). Copy **only the value after the first `=`** on the `ARTAUD_API_KEY=` line into **Owner access key**. Include any trailing `=` characters in the value. For the base stack with no key configured, leave this field empty.
-4. Choose **Test connection → Connect backend**.
-5. Open **Cluster → Manage workers** to see the worker controls. Wait for the workers to finish JOINING and become available. Nonempty uploads need at least two eligible workers.
-
-The dashboard clears the key on page reload. If you change the key in `.env` after startup, rerun the full demo Compose command from step 2 to apply it, then enter the new value in **Connection settings**. Keep it out of Git, screenshots and `VITE_` variables. API documentation is at **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**; a healthy `/health` response confirms the controller is up, not that every worker or replica is ready.
-
-### 4. Check it works
-
-Upload a disposable file larger than 1 MB. Inspect its ordered chunks and two recorded healthy locations, edit its metadata, then download and compare the checksum. **Details → Verify integrity** can compare a selected original/downloaded file with its stored SHA-256 locally in the browser (up to 128 MiB).
-
-In demo mode, stop one actual holder, observe fallback/repair, then start it again. Availability reflects the latest verified admission and heartbeat. Recovery normally runs about every 5 seconds. Roughly every 60 seconds, a live inventory pass checks stored copies against their recorded checksums. Downloads verify each copy they read. Starting a worker triggers inventory verification before admission. Recovery may delete surplus copies on rejoin, leaving a healthy returned worker empty.
-
-**Corrupting both replicas of the same chunk removes its good source.** The affected download returns `503` until a valid copy of that chunk is restored. Uploading the original file again creates a new object ID. Two different worker buttons in one chunk row target two copies of that same chunk.
-
-### 5. Stop and restart safely
-
-Stop for the day while keeping containers and stored data:
-
-```sh
+docker compose -f compose.yaml ps
+docker compose -f compose.yaml logs --tail 100 controller worker2
 docker compose -f compose.yaml stop
 ```
 
-Next time, rerun the startup command for your chosen mode. Normal `docker compose -f compose.yaml down` also preserves named volumes. **Adding `-v` deletes volumes and their stored data.** Keep the same Compose project name when starting again.
+`stop` retains the containers and volumes. Run the same startup command again to resume. `docker compose down -v` deletes the stored volumes.
 
-## How storage works
+## Demo checklist
 
-```mermaid
-flowchart LR
-    B[Browser] -->|Local HTTP| C[Controller]
-    C <--> D[(SQLite metadata volume)]
-    C <--> W1[worker1 + volume]
-    C <--> W2[worker2 + volume]
-    C <--> W3[worker3 + volume]
-    C <--> W4[worker4 + volume]
+1. Upload a disposable file larger than 1 MB with custom metadata. Open **Cluster → Where each chunk lives** and select it. Each chunk should show two healthy locations, and the final chunk may be smaller.
+2. Download the file, then use **Details → Verify integrity** to compare it with the stored SHA-256. Edit a custom metadata field and reopen the inspector to confirm the change.
+3. Select a chunk held by `worker2`. Stop that worker, download the file again, and watch for replacement copies on surviving workers. Restart the worker and wait for verified readmission.
+
+   ```sh
+   docker stop worker2
+   # Observe download fallback and wait for repair here.
+   docker start worker2
+   ```
+
+4. With the full overlay, use **Corrupt this copy** on one replica that also has a healthy counterpart. Verify the download and observe repair. Either **CORRUPT** bytes or a **MISSING** copy can be replaced from a verified surviving copy of that chunk.
+5. Delete the demo file and confirm it disappears from **Files**. The isolated acceptance test checks physical copies and deletion on disk.
+
+The dashboard distinguishes Docker running status from worker availability. If admission, authentication or a download fails, see [Troubleshooting](docs/TROUBLESHOOTING.md). The hosted frontend needs a running controller and an HTTPS tunnel. [Hosted dashboard](https://frontend-nine-iota-19.vercel.app/) · [Remote demo setup](docs/DEMO.md)
+
+## Use the API
+
+Open `/docs` to explore the API. When the owner key is configured, send the `X-Artaud-Key` header. The following commands work in a POSIX shell on a fresh base stack. With authentication enabled, export `ARTAUD_API_KEY` in that shell before running them. Use a real `sample.bin` and replace `OBJECT_ID` with the result of the upload. [Interactive API documentation](http://127.0.0.1:8000/docs)
+
+```sh
+api=http://127.0.0.1:8000/api/v1/objects
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -F 'file=@sample.bin' \
+  -F 'metadata={"demo":"yes"}' "$api"
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" "$api"
+object_id=OBJECT_ID
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" "$api/$object_id/metadata"
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -X PATCH \
+  -H 'Content-Type: application/json' -d '{"metadata":{"reviewed":true}}' \
+  "$api/$object_id/metadata"
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -o retrieved.bin "$api/$object_id"
+shasum -a 256 sample.bin retrieved.bin
+curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -X DELETE "$api/$object_id"
 ```
 
-Each chunk is placed on two distinct eligible workers, choosing the lowest healthy chunk count and breaking ties by worker ID. With four initially empty workers, sequential chunks commonly alternate worker1/2 and worker3/4. Counts can differ after failures or concurrent operations; balancing chunk counts does not guarantee equal byte usage.
+On Linux, you can also use `sha256sum sample.bin retrieved.bin`. In PowerShell, compare files with `Get-FileHash -Algorithm SHA256 -Path sample.bin,retrieved.bin`. Full request shapes and status codes are in the [HTTP contract](contracts/api-contract.md).
 
-The topology's **copies** count includes recorded HEALTHY replicas. **Replica records** in worker management includes every state, including CORRUPT, MISSING and pending cleanup. MISSING means an expected chunk is absent; CORRUPT means present bytes fail verification. Recovery can delete damaged bytes, after which the same record may become MISSING.
+## Run tests
 
-The controller verifies the whole object before starting a binary response. If both holders of a required chunk are unavailable and repair has not created another copy, that file cannot be downloaded. Four containers on one PC share one physical failure domain. See [architecture and failure limits](docs/ARCHITECTURE.md).
+**Backend suite as one command in PowerShell**, from the repository root with Docker running.
 
-## API and development
+```powershell
+docker build -f Dockerfile.controller -t mini-object-store-controller:integration .; if ($LASTEXITCODE -eq 0) { docker run --rm --network none --mount "type=bind,source=$($PWD.Path),target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest tests -q -p no:cacheprovider --basetemp=/tmp/object-store-tests }
+```
 
-| Method | Route                           | Success                                           |
-| ------ | ------------------------------- | ------------------------------------------------- |
-| POST   | `/api/v1/objects`               | 201 — multipart file and optional JSON metadata   |
-| GET    | `/api/v1/objects/{id}`          | 200 — verified bytes; valid ranges can return 206 |
-| GET    | `/api/v1/objects/{id}/metadata` | 200 — metadata, chunks and replica records        |
-| PATCH  | `/api/v1/objects/{id}/metadata` | 200 — merge `{"metadata":{...}}`                  |
-| DELETE | `/api/v1/objects/{id}`          | 204 — object hidden and copy deletion attempted   |
-| GET    | `/api/v1/objects`               | 200 — READY objects                               |
+**Backend suite as one command in macOS/Linux Terminal.**
 
-When configured, `/api/v1/*` requests require `X-Artaud-Key`. Administrative mutations also require `X-Artaud-Admin: 1`. Offline physical deletion remains eventual. Complete request/error/range semantics are in the [HTTP contract](contracts/api-contract.md).
+```sh
+docker build -f Dockerfile.controller -t mini-object-store-controller:integration . && docker run --rm --network none --mount "type=bind,source=$PWD,target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest tests -q -p no:cacheprovider --basetemp=/tmp/object-store-tests
+```
 
-For frontend work, run `npm ci` and `npm run dev` inside `frontend`; run `npm run build` to regenerate `controller/static` before rebuilding the controller. Backend tests run in Linux Docker. [Development and testing](docs/DEVELOPMENT.md) contains the exact commands, module map and activity contract.
+**Live acceptance**, from the repository root with Python 3.12 or newer. It brings up a disposable cluster with separate volumes and includes a 50 MB round trip.
 
-## Essential documentation
+```sh
+docker build -f Dockerfile.controller -t mini-object-store-controller:integration .
+docker build -f Dockerfile.worker -t mini-object-store-worker:integration .
+python tests/test_end_to_end.py --large
+```
 
-| Document                                                                         | Purpose                                                                   |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| [Architecture](docs/ARCHITECTURE.md)                                             | Chunk placement, integrity, state meanings and failure model              |
-| [Demo and deployment](docs/DEMO.md)                                              | Local setup, worker controls and presentation                    |
-| [Troubleshooting](docs/TROUBLESHOOTING.md)                                       | Owner key, JOINING, unknown containers, quotas and missing/corrupt copies |
-| [Development and testing](docs/DEVELOPMENT.md)                                   | Controller/frontend development, automated checks and telemetry           |
-| [HTTP contract](contracts/api-contract.md)                                       | Public/internal endpoints and shared wire behavior                        |
-| [Database schema](contracts/db-schema.md) and [helpers](contracts/db-helpers.md) | Stable controller/recovery integration boundary                           |
-| [Design system](DESIGN.md)                                                       | UI tokens, layout and interaction rules                                   |
+To include the live browser workflow, install the frontend dependencies and Chromium using the commands below. Then run `python tests/test_end_to_end.py --large --browser` from the repository root.
 
-Member A owns the controller/frontend; Member B owns worker storage and recovery. Contracts and acceptance checks are shared. All integrated work is on `master`.
+**Frontend tests and build**, with Node.js 22.12+ and npm.
 
-## Limits
+```sh
+cd frontend
+npm ci
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
 
-This is an educational system with a working local demo, not a production availability guarantee. It uses one controller/SQLite database, two replicas per chunk and one physical PC. It has no multi-user IAM, erasure coding, versioning, multi-region failover or S3-compatible protocol. Activity is bounded and process-local. A full-buffer browser fallback can make remote downloads appear to wait while bytes arrive. Containers run as root, and each worker volume requires one worker process.
+Use `npm run dev` for the frontend development server on port 5173. Start the controller separately for real uploads. `npm run build` regenerates `controller/static`; rebuild the controller to serve the updated dashboard. [Development guide](docs/DEVELOPMENT.md)
 
-Frontend and font notices are retained in [third-party notices](frontend/public/assets/third-party-notices.txt) and [the Geist license](frontend/public/assets/geist-license.txt).
+## Project report
+
+The report covers the storage design, recovery behavior and verification results. Its figures and LaTeX source are included in the repository. Build the PDF with Tectonic from the report directory.
+
+```sh
+cd docs/report
+tectonic artaud-report.tex
+```
+
+With TeX Live, run `pdflatex artaud-report.tex` twice from the same directory.
+
+[PDF report](docs/report/artaud-report.pdf) · [LaTeX source](docs/report/artaud-report.tex) · [Architecture](docs/ARCHITECTURE.md) · [Database schema](contracts/db-schema.md)

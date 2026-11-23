@@ -1,6 +1,6 @@
 # Demo and Vercel connection
 
-[Local setup](../README.md#setup-and-start) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](ARCHITECTURE.md)
+[Local setup](../README.md#run-locally) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](ARCHITECTURE.md)
 
 ## Run the backend
 
