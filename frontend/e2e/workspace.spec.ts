@@ -1306,6 +1306,7 @@ test("replica fault permits both copies after separate confirmation", async ({ p
   const table = await openDemoPlacement(page);
   const button = table.getByRole("button", { name: "Corrupt this copy on worker1 for chunk 1" });
   await expect(table.getByRole("button", { name: /Corrupt this copy/ })).toHaveCount(2);
+  await expect(button).toHaveCSS("display", "block");
   await button.click();
   const dialog = page.getByRole("alertdialog", { name: "Corrupt this copy?" });
   await expect(dialog.getByText(chunk, { exact: true })).toBeVisible();

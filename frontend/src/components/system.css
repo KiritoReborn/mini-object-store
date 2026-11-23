@@ -570,7 +570,7 @@
   background: currentColor;
   border-radius: 50%;
 }
-.replica-fault-action {
+.placement-table .replica-fault-action {
   display: block;
   margin-top: 4px;
   font-size: inherit;

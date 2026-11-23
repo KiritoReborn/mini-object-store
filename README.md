@@ -31,7 +31,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open **Cluster** in the dashboard and wait for all four workers to show **Available**. A fresh base-mode checkout works without an owner key. If you already configured `ARTAUD_API_KEY`, unlock the dashboard using the connection steps below. [Local dashboard](http://127.0.0.1:8000/)
+[Open the local dashboard at 127.0.0.1:8000](http://127.0.0.1:8000/). In **Cluster**, wait for all four workers to show **Available**. A fresh base-mode checkout works without an owner key. If you configured `ARTAUD_API_KEY`, unlock the dashboard using the connection steps below.
 
 <details>
 <summary>Update an existing checkout</summary>
@@ -60,15 +60,19 @@ docker compose stop
 
 1. Upload a disposable file larger than 1,000,000 bytes. In **Cluster → Where each chunk lives**, select the file and check that each chunk has two healthy locations.
 2. Download it. Use **Details → Verify integrity** to compare the downloaded file with the stored SHA-256. Change a custom metadata field and check that the update persists.
-3. Find a chunk held by `worker2` and run `docker stop worker2`. The file should still download from its other copies. The default heartbeat timeout is 15 seconds from the last heartbeat, with a recovery pass roughly every five seconds. Watch `worker2` go **Offline** and wait for each chunk to have two available locations on surviving workers. Run `docker start worker2` and wait for it to go from **Joining** to **Available**. Any surplus is removed after two other copies are verified.
-4. In a disposable upload, find a chunk with one healthy copy on `worker1` and a healthy counterpart on another worker. Copy its chunk ID from the metadata API, then change the bytes on the worker. This works in base mode.
+3. Stop and rejoin `worker2` using a disposable file with a chunk on that worker.
+   - Run `docker stop worker2` and download the file again. Expect the checksum to match, using its surviving copies.
+   - Expect `worker2` to show **Offline** after about 15–20 seconds and two available copies per chunk to return around 20 seconds in a small local demo. Timing varies with heartbeat phase and repair work. Check the placement table for recovery before restarting the worker.
+   - Run `docker start worker2`. Expect **Joining**, then **Available**. The worker can return with **0 copies** because the controller removes surplus copies once two other copies pass verification. Existing valid copies stay where they are.
+4. Corrupt one copy of a disposable object. The dashboard's **Chunk 1** is API index `0` and its ID ends in `_0`. Substitute your uploaded object's ID below. This POSIX shell example uses `curl` and `jq` and selects the first chunk only if it has two available workers, including `worker1`.
 
    ```sh
-   chunk_id=REPLACE_WITH_CHUNK_ID
-   docker compose exec -T worker1 sh -c 'printf x >> "/data/chunks/$1"' artaud-demo "$chunk_id"
+   object_id=REPLACE_WITH_OBJECT_ID
+   chunk_id=$(curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" "http://127.0.0.1:8000/api/v1/objects/$object_id/metadata" | jq -er '.chunks[] | select(.index == 0 and (.available_workers | length) == 2 and (.available_workers | index("worker1")) != null) | .chunk_id') &&
+     docker compose exec -T worker1 sh -c 'printf x >> "/data/chunks/$1"' artaud-demo "$chunk_id"
    ```
 
-   Download and verify the file again. **Recent activity → Replicas & recovery** records the corruption and repair. If the healthy copy was read first, give the periodic inventory scan time to find the damaged one. With the overlay, **Corrupt this copy** injects a similar fault from the dashboard.
+   Download and verify the file again. **Recent activity → Replicas & recovery** shows detection and repair. If the healthy copy was read first, wait for the periodic inventory scan. With the controls overlay, **Corrupt this copy** injects a fault from the dashboard.
 5. Delete the demo file and confirm it disappears from **Files**. The live test also checks cleanup on disk.
 
 ### Enable dashboard worker controls
@@ -99,7 +103,7 @@ docker compose -f compose.yaml -f compose.controls.yaml ps
 
 In **Connection settings**, leave **Backend HTTPS address** empty for the local controller. Paste the value of `ARTAUD_API_KEY` from `.env`, then select **Test connection** and **Connect backend**. A page reload clears the key.
 
-The hosted frontend needs the controller PC, Docker, and the ngrok tunnel to be running. If the backend is offline, use the screenshot above and the recorded demo in the report. [Hosted dashboard](https://frontend-nine-iota-19.vercel.app/) · [Remote setup](docs/DEMO.md)
+The hosted frontend needs the controller PC, Docker, and the ngrok tunnel to be running. If the backend is offline, see the screenshots in the report. [Hosted dashboard](https://frontend-nine-iota-19.vercel.app/) · [Remote setup](docs/DEMO.md)
 
 ## HTTP API
 
@@ -137,7 +141,7 @@ curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -X DELETE "$api/$object_id"
 
 </details>
 
-The project plan proposed `client.cli` and `/admin/status`. The shipped interfaces are the dashboard, curl, `GET /api/v1/overview` for cluster status, and `GET /api/v1/objects/{id}/metadata` for chunk locations.
+**Clients** include the dashboard and curl.
 
 ## Run tests
 
@@ -207,3 +211,7 @@ tectonic artaud-report.tex
 ```
 
 With TeX Live, run `pdflatex artaud-report.tex` twice from the same directory.
+
+## License
+
+Artaud is released under the [MIT License](LICENSE). The bundled Geist font is distributed under the [SIL Open Font License 1.1](frontend/public/assets/geist-license.txt). [Third-party notices](frontend/public/assets/third-party-notices.txt)
