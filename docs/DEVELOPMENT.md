@@ -2,18 +2,18 @@
 
 [Setup](../README.md#run-locally) · [Architecture](ARCHITECTURE.md) · [API contract](../contracts/api-contract.md)
 
-## Ownership and code map
+## Code map
 
-| Area                                                   | Main files                                                              | Owner              |
-| ------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------ |
-| App lifecycle, validation and configuration            | `controller/main.py`, `models.py`, `config.py`                          | A                  |
-| SQLite metadata and stable integration helpers         | `controller/database.py`, `schema.sql`, `contracts/`                    | A; shared contract |
-| Placement and object lifecycle                         | `controller/placement.py`, `objects.py`                                 | A                  |
-| Inventory, admission and automatic repair              | `controller/recovery.py`                                                | B                  |
-| Worker disk storage, HTTP API and heartbeat            | `worker/storage.py`, `main.py`, `heartbeat.py`                          | B                  |
-| Dashboard, worker administration and demo control APIs | `controller/dashboard.py`, `worker_admin.py`, `demo.py`, `telemetry.py` | A                  |
-| React interface and browser verification               | `frontend/src/`, `frontend/e2e/`                                        | A                  |
-| Docker/Compose and end-to-end acceptance               | Dockerfiles, Compose files, `tests/test_end_to_end.py`                  | B/shared           |
+| Area                                                   | Main files                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| App lifecycle, validation and configuration            | `controller/main.py`, `models.py`, `config.py`                          |
+| SQLite metadata and stable integration helpers         | `controller/database.py`, `schema.sql`, `contracts/`                    |
+| Placement and object lifecycle                         | `controller/placement.py`, `objects.py`                                 |
+| Inventory, admission and automatic repair              | `controller/recovery.py`                                                |
+| Worker disk storage, HTTP API and heartbeat            | `worker/storage.py`, `main.py`, `heartbeat.py`                          |
+| Dashboard, worker administration and demo control APIs | `controller/dashboard.py`, `worker_admin.py`, `demo.py`, `telemetry.py` |
+| React interface and browser verification               | `frontend/src/`, `frontend/e2e/`                                        |
+| Docker/Compose and end-to-end acceptance               | Dockerfiles, Compose files, `tests/test_end_to_end.py`                  |
 
 Run one controller process. Per-object locks and background work are process-local; multiple Uvicorn workers are unsupported. SQLite transactions remain short and contain no network calls. Controller download preparation uses temporary disk storage, then verifies complete bytes before returning a binary response.
 
@@ -32,7 +32,7 @@ The default Docker paths are `/data/metadata.db` and `/data/downloads`. Worker s
 ### Compose configuration
 
 | Setting                  | Default                  | Scope                                                           |
-| ------------------------ | ------------------------ | --------------------------------------------------------------- |
+| ------------------------ | ------------------------ |
 | `CHUNK_SIZE`             | 1,000,000 bytes          | Controller and workers                                          |
 | `HEARTBEAT_INTERVAL`     | 5 seconds                | Worker heartbeat                                                |
 | `WORKER_DEAD_TIMEOUT`    | 15 seconds               | Controller eligibility/death detection                          |
@@ -48,7 +48,7 @@ Replication is fixed at two. Ports are fixed by Compose/Dockerfiles: controller 
 
 ## Frontend development
 
-Use a Node version supported by the locked dependencies; Node 22.23.2 was used locally. From the repository root:
+Use Node.js 22.12 or newer. From the repository root:
 
 ```sh
 cd frontend
@@ -90,13 +90,13 @@ docker build -f Dockerfile.worker -t mini-object-store-worker:integration .
 PowerShell:
 
 ```powershell
-docker run --rm --network none --mount "type=bind,source=$($PWD.Path),target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest -q -p no:cacheprovider --basetemp=/tmp/object-store-tests
+docker run --rm --network none --mount "type=bind,source=$($PWD.Path),target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest tests -q -p no:cacheprovider --basetemp=/tmp/object-store-tests
 ```
 
 POSIX shell:
 
 ```sh
-docker run --rm --network none --mount "type=bind,source=$PWD,target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest -q -p no:cacheprovider --basetemp=/tmp/object-store-tests
+docker run --rm --network none --mount "type=bind,source=$PWD,target=/review,readonly" --workdir /review mini-object-store-controller:integration python -B -m pytest tests -q -p no:cacheprovider --basetemp=/tmp/object-store-tests
 ```
 
 The read-only mount supplies the checkout/tests. Temporary data remains in the disposable container; existing Compose volumes are not attached. Linux is required for worker directory-sync tests. Normal pytest skips the explicitly invoked live Docker test.
@@ -128,7 +128,7 @@ After installing frontend dependencies and Chromium, include the real browser wo
 python tests/test_end_to_end.py --large --browser
 ```
 
-The standard-library harness creates a UUID-labelled private network, controller, four workers and five new volumes, with a random loopback controller port. Only its own resources are removed afterward. It uses B's actual admission/recovery; it never grants ALIVE itself. It checks exact chunk boundaries, two physical copies/hash validation, Unicode metadata, stop/fallback/death/repair/rejoin, forged-sidecar corruption, restart persistence, physical deletion and optional 50,000,000-byte streaming.
+The standard-library harness creates a UUID-labelled private network, controller, four workers and five new volumes, with a random loopback controller port. Only its own resources are removed afterward. The controller performs normal verified admission and recovery in this test. It checks exact chunk boundaries, two physical copies/hash validation, Unicode metadata, stop/fallback/death/repair/rejoin, forged-sidecar corruption, restart persistence, physical deletion and optional 50,000,000-byte streaming.
 
 `sh scripts/demo.sh --large` is a POSIX wrapper for the same runner. Use `--help` for timeouts/image options; defaults are the integration tags above. The older `tests/live_controller_check.py` remains historical pre-recovery A-only tooling; use `test_end_to_end.py` for current integrated evidence.
 

@@ -4,6 +4,22 @@ Artaud is a mini distributed object store for demonstrating replication and reco
 
 [Run locally](#run-locally) · [Demo](#demo-checklist) · [HTTP API](#http-api) · [Tests](#run-tests) · [Project report](docs/report/artaud-report.pdf)
 
+## What it does
+
+- Stores arbitrary files as ordered chunks of up to **1,000,000 bytes**, with two copies of each chunk on different workers.
+- Verifies downloaded bytes with SHA-256. A surviving verified copy keeps its chunk readable and gives recovery a source.
+- Provides six object API operations, persistent volumes, and a dashboard that shows placement and recovery.
+
+```mermaid
+flowchart LR
+    Client["Dashboard / REST client"] --> Controller
+    Controller --- SQLite["SQLite metadata"]
+    Controller --> W1["worker1"]
+    Controller --> W2["worker2"]
+    Controller --> W3["worker3"]
+    Controller --> W4["worker4"]
+```
+
 ## Run locally
 
 Install Git and Docker Compose v2. On Windows or macOS, start Docker Desktop. Use Linux containers on Windows.
@@ -15,7 +31,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open **Cluster** in the dashboard and wait for all four workers to show **Available**. If the controller asks for an owner key, open **Connection settings**, leave **Backend HTTPS address** empty, paste the `ARTAUD_API_KEY` value from `.env`, and select **Test connection**, then **Connect backend**. [Local dashboard](http://127.0.0.1:8000/)
+Open **Cluster** in the dashboard and wait for all four workers to show **Available**. A fresh base-mode checkout works without an owner key. If you already configured `ARTAUD_API_KEY`, unlock the dashboard using the connection steps below. [Local dashboard](http://127.0.0.1:8000/)
 
 <details>
 <summary>Update an existing checkout</summary>
@@ -44,9 +60,16 @@ docker compose stop
 
 1. Upload a disposable file larger than 1,000,000 bytes. In **Cluster → Where each chunk lives**, select the file and check that each chunk has two healthy locations.
 2. Download it. Use **Details → Verify integrity** to compare the downloaded file with the stored SHA-256. Change a custom metadata field and check that the update persists.
-3. Find a chunk held by `worker2`, then run `docker stop worker2`. Download the same file and watch the controller restore two-copy redundancy on surviving workers. Run `docker start worker2` and wait for it to rejoin.
-4. With the controls enabled below, select **Corrupt this copy** on a chunk replica with a healthy counterpart. Download or wait for an inventory scan, then check that recovery restores a valid copy.
-5. Delete the demo file and confirm it disappears from **Files**.
+3. Find a chunk held by `worker2` and run `docker stop worker2`. The file should still download from its other copies. The default heartbeat timeout is 15 seconds from the last heartbeat, with a recovery pass roughly every five seconds. Watch `worker2` go **Offline** and wait for each chunk to have two available locations on surviving workers. Run `docker start worker2` and wait for it to go from **Joining** to **Available**. Any surplus is removed after two other copies are verified.
+4. In a disposable upload, find a chunk with one healthy copy on `worker1` and a healthy counterpart on another worker. Copy its chunk ID from the metadata API, then change the bytes on the worker. This works in base mode.
+
+   ```sh
+   chunk_id=REPLACE_WITH_CHUNK_ID
+   docker compose exec -T worker1 sh -c 'printf x >> "/data/chunks/$1"' artaud-demo "$chunk_id"
+   ```
+
+   Download and verify the file again. **Recent activity → Replicas & recovery** records the corruption and repair. If the healthy copy was read first, give the periodic inventory scan time to find the damaged one. With the overlay, **Corrupt this copy** injects a similar fault from the dashboard.
+5. Delete the demo file and confirm it disappears from **Files**. The live test also checks cleanup on disk.
 
 ### Enable dashboard worker controls
 
@@ -61,14 +84,11 @@ notepad .env
 
 **macOS or Linux**
 
-Keep your existing key if it has at least 32 characters. Otherwise, copy the generated `ARTAUD_API_KEY=...` line into `.env` next to `compose.yaml`. Keep a single key entry.
+The helper uses OpenSSL and preserves any existing owner-key entry.
 
 ```sh
-openssl rand -hex 32 | sed 's/^/ARTAUD_API_KEY=/'
-nano .env
+sh scripts/configure-demo.sh
 ```
-
-In Nano, press **Ctrl+O**, **Enter**, then **Ctrl+X**.
 
 **Start or rebuild all five services with the overlay.**
 
@@ -77,7 +97,9 @@ docker compose -f compose.yaml -f compose.controls.yaml up --build -d
 docker compose -f compose.yaml -f compose.controls.yaml ps
 ```
 
-Reconnect the dashboard with the owner key. A page reload clears the key. Use fault injection on disposable uploads. For a remote presentation, keep Docker and the HTTPS tunnel running on the controller machine. [Hosted dashboard](https://frontend-nine-iota-19.vercel.app/) · [Remote setup](docs/DEMO.md)
+In **Connection settings**, leave **Backend HTTPS address** empty for the local controller. Paste the value of `ARTAUD_API_KEY` from `.env`, then select **Test connection** and **Connect backend**. A page reload clears the key.
+
+The hosted frontend needs the controller PC, Docker, and the ngrok tunnel to be running. If the backend is offline, use the screenshot above and the recorded demo in the report. [Hosted dashboard](https://frontend-nine-iota-19.vercel.app/) · [Remote setup](docs/DEMO.md)
 
 ## HTTP API
 
@@ -114,6 +136,8 @@ curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" -X DELETE "$api/$object_id"
 ```
 
 </details>
+
+The project plan proposed `client.cli` and `/admin/status`. The shipped interfaces are the dashboard, curl, `GET /api/v1/overview` for cluster status, and `GET /api/v1/objects/{id}/metadata` for chunk locations.
 
 ## Run tests
 
@@ -160,6 +184,10 @@ npm run build
 
 Use `npm run dev` to start the Vite development server. `npm run build` regenerates `controller/static`. Rebuild the Docker controller to serve those assets. [Development guide](docs/DEVELOPMENT.md)
 
+## Limits
+
+The default chunk size is 1,000,000 bytes and the final chunk may be smaller. The controller and all four workers share one host. An object becomes unavailable if every verified copy of any of its chunks is unreachable. Repair needs a valid copy and an eligible worker.
+
 ## Documentation
 
 | Topic | Where to look |
@@ -168,6 +196,7 @@ Use `npm run dev` to start the Vite development server. `npm run build` regenera
 | Local connection, worker, and download issues | [Troubleshooting](docs/TROUBLESHOOTING.md) |
 | Local demo controls, Vercel, and the HTTPS tunnel | [Demo and deployment](docs/DEMO.md) |
 | API and persistent metadata | [HTTP contract](contracts/api-contract.md) · [Database schema](contracts/db-schema.md) |
+| Assignment and team plan | [Assignment brief](docs/Mini_Distributed_Cloud_Object_Store.pdf) · [Project plan](docs/Mini_Distributed_Object_Store_Final_Updated_Plan.pdf) |
 | Project design, development challenges, screenshots, and verification | [PDF report](docs/report/artaud-report.pdf) · [LaTeX source](docs/report/artaud-report.tex) |
 
 Build the report from its LaTeX source with Tectonic.

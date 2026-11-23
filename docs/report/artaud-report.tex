@@ -1,417 +1,520 @@
 \documentclass[11pt,a4paper]{article}
-\usepackage[a4paper,top=25mm,bottom=23mm,left=22mm,right=22mm]{geometry}
-\usepackage{graphicx,xcolor,booktabs,tabularx,fancyhdr}
+\usepackage[a4paper,top=24mm,bottom=24mm,left=21mm,right=21mm]{geometry}
+\usepackage{graphicx,xcolor,booktabs,tabularx,fancyhdr,lastpage}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning}
-\usepackage[colorlinks=true,linkcolor=black,urlcolor=teal,pdftitle={Artaud - Mini Distributed Object Store},pdfsubject={Cloud computing project report}]{hyperref}
+\usetikzlibrary{arrows.meta}
+\usepackage{caption}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=teal,pdftitle={Artaud - Mini Distributed Cloud Object Store},pdfauthor={Jaya Raghunandhan Reddy P and Varanasi Harshith Raj}]{hyperref}
 
 \definecolor{ink}{HTML}{162C25}
 \definecolor{forest}{HTML}{17634D}
 \definecolor{slate}{HTML}{40544B}
 \definecolor{mist}{HTML}{EAF3EF}
 \definecolor{linegreen}{HTML}{B9D2C7}
-\definecolor{paperwhite}{HTML}{F6F9F7}
-
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{7pt}
+\setlength{\parskip}{6pt}
 \setlength{\headheight}{16pt}
 \setlength{\emergencystretch}{2em}
-\renewcommand{\arraystretch}{1.22}
+\renewcommand{\arraystretch}{1.17}
+\setcounter{tocdepth}{1}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \frenchspacing
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small\textsf{\textcolor{forest}{ARTAUD}}}
-\fancyhead[R]{\small\textsf{\textcolor{slate}{CLOUD COMPUTING PROJECT}}}
-\fancyfoot[L]{\small\textsf{\textcolor{slate}{MINI DISTRIBUTED OBJECT STORE}}}
-\fancyfoot[R]{\small\textsf{\textcolor{forest}{\thepage}}}
-\renewcommand{\headrulewidth}{0.35pt}
-
-\newcommand{\reportsection}[1]{%
-  \par\noindent{\huge\sffamily\bfseries\color{ink}#1}\par
-  \vspace{1mm}{\color{linegreen}\rule{\linewidth}{0.6pt}}\par}
-\newcommand{\topic}[1]{\par\medskip{\large\sffamily\bfseries\color{forest}#1}\par}
+\fancyhead[R]{\small\textsf{\textcolor{slate}{CSE 838 / CLOUD COMPUTING}}}
+\fancyfoot[R]{\small\textsf{\textcolor{slate}{Page \thepage\ of \pageref*{LastPage}}}}
+\captionsetup{font=small,labelfont={bf,color=forest},textfont=sf}
+\makeatletter
+\renewcommand{\section}{\@startsection{section}{1}{0pt}{-2.5ex plus -.4ex}{1.1ex}{\Large\sffamily\bfseries\color{ink}}}
+\renewcommand{\subsection}{\@startsection{subsection}{2}{0pt}{-1.8ex plus -.3ex}{.65ex}{\large\sffamily\bfseries\color{forest}}}
+\makeatother
 \newcommand{\code}[1]{\texttt{#1}}
-\newcommand{\figcaption}[2]{%
-  \par{\small\sffamily\color{slate}\textbf{Figure #1.} #2}\par}
-\newcommand{\testedcommit}{20357e2}
 \newcommand{\repo}{https://github.com/KiritoReborn/mini-object-store}
-\newcommand{\keyfact}[2]{%
-  \begin{minipage}[t]{0.29\linewidth}
-    {\huge\sffamily\bfseries\color{forest}#1}\par
-    {\small\sffamily\color{slate}#2}
-  \end{minipage}}
+\newcommand{\verifiedcommit}{8ea6280}
+\newcommand{\stoppedseconds}{17.21}
+\newcommand{\repairedseconds}{19.09}
+\newcommand{\uploadseconds}{3.53}
+\newcommand{\downloadseconds}{0.88}
+\newcommand{\rejoinseconds}{6.07}
+\newcommand{\affectedchunks}{25}
+\newcommand{\deficitchunks}{26}
+\newcommand{\corruptworker}{worker1}
+\newcommand{\figureimage}[2]{\includegraphics[width=#1]{figures/#2}}
 
 \begin{document}
-
+\begin{titlepage}
 \thispagestyle{empty}
-\noindent{\color{forest}\rule{\linewidth}{1.4pt}}\par
+{\color{forest}\rule{\linewidth}{1.4pt}}\par
 \vspace{10mm}
-{\large\sffamily\bfseries\color{forest} CLOUD COMPUTING PROJECT REPORT}\par
-\vspace{15mm}
-\scalebox{2.05}{{\Huge\sffamily\bfseries\color{ink}Artaud}}\par
-{\LARGE\sffamily\color{slate} Mini Distributed Object Store}\par
-\vspace{14mm}
-{\large
-A storage service that splits uploaded files across four Docker workers,
-checks every chunk before serving a download, and restores redundancy after
-a worker outage or detected replica damage. A browser dashboard exposes
-placement and recovery during the local demo.\par}
-\vspace{11mm}
+{\large\sffamily\color{forest}\bfseries International Institute of Information Technology Bangalore}\par
+{\large\sffamily\color{slate} CSE 838 / Cloud Computing}\par
+\vspace{18mm}
+{\Huge\sffamily\bfseries\color{ink} Artaud}\par
+\vspace{2mm}
+{\LARGE\sffamily\color{slate} Mini Distributed Cloud Object Store}\par
+\vspace{6mm}
+{\large\sffamily Infrastructure project report}\par
+\vspace{13mm}
 
-\noindent\colorbox{mist}{\parbox{\dimexpr\linewidth-2\fboxsep\relax}{%
-  \vspace{6mm}\hspace{4mm}
-  \keyfact{4}{storage workers}\hfill
-  \keyfact{2}{copies per chunk}\hfill
-  \keyfact{1 MB}{default chunk size}
-  \vspace{6mm}}}
+\begin{tabularx}{\linewidth}{@{}Y r@{}}
+\toprule
+\textbf{Student} & \textbf{Roll number} \\
+\midrule
+Jaya Raghunandhan Reddy P & BT2024029 \\
+Varanasi Harshith Raj & BT2024177 \\
+\bottomrule
+\end{tabularx}
 
-\vspace{11mm}
-\topic{Project scope}
-The local stack implements the six object endpoints in the assignment and
-ships a console for uploads, worker visibility, replica inspection and
-controlled fault demonstrations. The controller owns object metadata and
-orchestration. Workers own the persistent chunk bytes.
-
+\vspace{8mm}
+\textbf{Instructor}\enspace Prof.\ K V Subramaniam\par
+\textbf{Date}\enspace 23 November 2026\par
 \vfill
-\noindent{\color{linegreen}\rule{\linewidth}{0.6pt}}\par
-{\small\sffamily\color{slate} 23 November 2026 \hfill
-  \href{\repo/tree/20357e2c03212e9e3d8765286f69cbbbbfe62233}{Source snapshot \testedcommit}}
+{\color{linegreen}\rule{\linewidth}{.6pt}}\par
+{\small\sffamily\color{slate}
+One controller \enspace\textbullet\enspace Four workers \enspace\textbullet\enspace Two verified copies per chunk\hfill
+\href{\repo}{Project repository}}
+\end{titlepage}
+\setcounter{page}{2}
 
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+Artaud is a local distributed object store that runs one FastAPI controller and
+four workers in Docker. It divides arbitrary binary objects into ordered chunks
+of up to one million bytes and stores two copies on different workers. SQLite
+records metadata, expected checksums and replica locations. The controller
+verifies a complete object before serving it and restores lost redundancy from a
+verified copy. A fresh Compose deployment and a live run demonstrate the
+required storage, chunking, replication, metadata, worker-outage and corruption
+scenarios. A browser dashboard exposes placement, availability and repair events.
+
+\tableofcontents
 \clearpage
-\reportsection{System architecture}
 
-Clients use a single HTTP endpoint on port 8000. The controller coordinates
-object operations and writes metadata to SQLite. Workers communicate over the
-private Compose network and persist chunks and checksum sidecars in separate
-named volumes. The controller volume also contains temporary files used during
-download verification.
+\section{Assignment coverage}\label{sec:coverage}
+Table~\ref{tab:coverage} uses the identifiers from the team plan and maps
+them to concrete evidence. The assignment is fulfilled by the local Docker
+stack and REST API. The dashboard, optional owner key and Vercel presentation
+were added after the API-first plan. They provide a way to present the same
+storage operations.
 
-\begin{center}
+\begin{table}[htbp]
+\caption{Requirements from the assignment and team plan.}\label{tab:coverage}
+\small
+
+\begin{tabularx}{\linewidth}{@{}l L{40mm} Y@{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Implementation and evidence} \\
+\midrule
+R01 & One controller, four workers & Fresh Compose run starts five services. Four workers pass admission. \\
+R02 & Arbitrary binary objects & The round-trip download matches the original SHA-256 (Section~\ref{sec:live}). \\
+R03 & Ordered 1 MB chunks & A 1,000,001-byte object has chunks of 1,000,000 and 1 byte (Figure~\ref{fig:placement}). \\
+R04 & Two copies on distinct workers & The initial manifest records two different workers for each chunk. \\
+R05 & Distribution across workers & The sampled two chunks use all four workers (Figure~\ref{fig:placement}). \\
+R06 & Persistent worker data & Named volumes retain bytes through restart. The earlier acceptance run also restarts the stack. \\
+R07 & Required metadata fields & The actual API payload shows identity, type, times, hashes and placement (Section~\ref{sec:http}). \\
+R08 & Custom metadata & An upload supplies custom fields and a PATCH adds a field without changing its data hash. \\
+R09 & Six public REST operations & Each method and success status is listed in Section~\ref{sec:http}. \\
+R10 & Six internal operations & Worker registration, heartbeat, chunk operations and inventory are listed in Section~\ref{sec:http}. \\
+R11 & Failure detection and fallback & Stop worker2. Observe its state change and retrieve the object (Figure~\ref{fig:outage}). \\
+R12 & Restore replication & Measured replica deficit returned to zero, then the rejoin check confirmed two valid physical copies per chunk. \\
+R13 & Detect and repair corruption & A changed chunk hash, a corruption event and a verified download establish detection and recovery. \\
+R14 & Local Docker deployment & Fresh clone built and ran with Compose. One loopback port serves the API and UI. \\
+R15 & Setup, use and required demos & The README provides commands. Section~\ref{sec:live} records all six demonstrations. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Architecture and design decisions}\label{sec:arch}
+The controller serves the React dashboard and JSON API. SQLite stores the
+object manifests. Workers register and exchange chunks with the controller
+over the private Docker network. They persist binary chunks and hash
+sidecars in separate named volumes. The controller volume stores the
+database and verified-download temporary files. Jaya Raghunandhan Reddy P
+developed the object controller and dashboard. Varanasi Harshith Raj
+developed the worker service and recovery. Both contributed to integration
+and demo verification.
+
+\begin{figure}[htbp]
+\centering
 \begin{tikzpicture}[
-  font=\small\sffamily,
-  box/.style={draw=linegreen, line width=.7pt, rounded corners=3pt,
-    fill=paperwhite, text=ink, align=center, minimum height=12mm,
-    minimum width=27mm},
-  central/.style={box, fill=mist, minimum width=64mm},
-  route/.style={-{Stealth[length=2mm]}, line width=.8pt, draw=forest},
-  both/.style={{Stealth[length=2mm]}-{Stealth[length=2mm]},
-    line width=.8pt, draw=forest},
-  labeltext/.style={text=slate, font=\scriptsize\sffamily, fill=white,
-    inner sep=2pt}
-]
-\node[central] (client) at (0,0) {\textbf{Browser dashboard or REST client}};
-\node[central] (controller) at (0,-2.0)
-  {\textbf{FastAPI controller}\\Authentication, placement, object API, recovery};
-\node[box, minimum width=32mm] (db) at (5.8,-2.0)
-  {\textbf{SQLite}\\Controller volume};
-\node[box] (w1) at (-5.55,-5.0) {\textbf{worker1}\\Chunk volume};
-\node[box] (w2) at (-1.85,-5.0) {\textbf{worker2}\\Chunk volume};
-\node[box] (w3) at (1.85,-5.0) {\textbf{worker3}\\Chunk volume};
-\node[box] (w4) at (5.55,-5.0) {\textbf{worker4}\\Chunk volume};
-\draw[both] (client) -- node[labeltext,right]{HTTP on port 8000} (controller);
-\draw[both] (controller) -- (db);
-\draw[route] (controller.south) -- (0,-3.7);
-\draw[draw=forest,line width=.8pt] (-5.55,-3.7) -- (5.55,-3.7);
-\foreach \x/\w in {-5.55/w1,-1.85/w2,1.85/w3,5.55/w4}{
-  \draw[both] (\x,-3.7) -- (\w.north);
+  box/.style={draw=linegreen,fill=mist,rounded corners=3pt,minimum height=10mm,
+    align=center,minimum width=27mm,text=ink,font=\small\sffamily},
+  flow/.style={<->,>=Stealth,draw=forest,line width=.8pt},
+  branch/.style={draw=forest,line width=.8pt}]
+\node[box,minimum width=55mm] (client) at (0,0) {\textbf{Dashboard or REST client}};
+\node[box,minimum width=55mm] (controller) at (0,-1.65) {\textbf{FastAPI controller}\\Object API, placement, recovery};
+\node[box] (db) at (5.6,-1.65) {\textbf{SQLite}\\Controller volume};
+\draw[flow] (client) -- node[right,font=\scriptsize\sffamily]{HTTP 8000} (controller);
+\draw[flow] (controller) -- (db);
+\draw[branch] (controller.south) -- (0,-3.1);
+\draw[branch] (-5.4,-3.1) -- (5.4,-3.1);
+\foreach \x/\id in {-5.4/1,-1.8/2,1.8/3,5.4/4}{
+  \node[box] (w\id) at (\x,-4.3) {\textbf{worker\id}\\Chunk volume};
+  \draw[flow] (\x,-3.1) -- (w\id.north);
 }
-\node[labeltext,anchor=south] at (4.0,-3.7) {Worker HTTP and heartbeats};
+\node[anchor=south,font=\scriptsize\sffamily,text=slate] at (3.7,-3.1) {Private worker HTTP};
 \end{tikzpicture}
-\end{center}
-\figcaption{1}{The controller routes client requests, replica transfers and repairs.}
+\caption{Local deployment and persistent storage boundaries.}
+\label{fig:architecture}
+\end{figure}
 
-\topic{Implementation and ownership}
-\begin{tabularx}{\linewidth}{@{}p{29mm}X@{}}
+\subsection{Design choices}
+
+\begin{tabularx}{\linewidth}{@{}L{42mm} Y@{}}
 \toprule
-\textbf{Responsibility} & \textbf{Implementation} \\
+\textbf{Choice} & \textbf{Rationale} \\
 \midrule
-Member A & Controller object API, metadata and placement, browser dashboard and operator controls. \\
-Member B & Worker HTTP service, disk storage, heartbeat, verified admission and recovery. \\
-Shared & Controller--worker contracts, Compose topology, integration verification and the demo. \\
+SQLite as checksum authority & A worker's sidecar cannot establish correctness by itself. The controller verifies against independent expected hashes and sizes. \\
+Verify before sending & A file with an unreadable chunk can return a structured error before the binary response starts. Local disk holds the temporary assembled file. \\
+Verified \code{JOINING} admission & Inventory checks reconcile persisted bytes before eligibility. A registration token prevents stale checks from admitting a restarted worker. \\
+Least-loaded eligible placement & Sorting by recorded chunk count and then worker ID spreads copies deterministically. Different tail sizes can produce unequal byte totals. \\
 \bottomrule
 \end{tabularx}
 
-\topic{Access}
-The base stack binds to the local host. When the owner key is configured,
-clients send it in \code{X-Artaud-Key}. The demo overlay adds worker container
-controls and fault injection. The assignment demonstration uses the local
-stack, while the repository documents Vercel separately for remote presentations.
+\subsection{SQLite metadata schema}
+Four core tables describe stored objects. Two support tables hold worker
+settings and registration tokens.
 
-\clearpage
-\reportsection{Object lifecycle and API}
-
-\topic{Upload and placement}
-The controller reads the incoming file in chunks of up to 1,000,000 bytes and
-computes SHA-256 digests. Placement picks two distinct eligible workers using
-recorded chunk count, then worker ID to break ties. Choosing by chunk count
-can even out replica counts while total bytes differ because tail chunks are
-often smaller. The controller publishes the object as \code{READY} after all
-required writes succeed. A failed upload can retry a worker write or fail
-without exposing a partial object as ready.
-
-\topic{Reads, metadata and deletion}
-The controller resolves the manifest, checks each candidate copy against the
-expected size and digest in SQLite and retries another copy when needed.
-It assembles and verifies the object in a temporary file before sending
-binary bytes. If a chunk has no verified readable copy, the download returns
-a JSON \code{503}. A valid range can select bytes from the verified file.
-
-Custom metadata is updated separately from immutable system fields. Deleting
-an object removes it from public listings and works through physical replica
-cleanup. Reconciliation can resume interrupted deletion.
-
-\topic{Required HTTP operations}
-\begin{tabularx}{\linewidth}{@{}l l X r@{}}
+\begin{tabularx}{\linewidth}{@{}L{41mm} Y@{}}
 \toprule
-\textbf{Method} & \textbf{Path suffix} & \textbf{Purpose} & \textbf{Success} \\
+\textbf{Table} & \textbf{Primary key and role} \\
 \midrule
-\code{POST} & (collection) & Upload a file and optional JSON metadata & 201 \\
-\code{GET} & (collection) & List ready objects & 200 \\
-\code{GET} & \code{/\{id\}} & Download the original bytes & 200 \\
-\code{GET} & \code{/\{id\}/metadata} & Read system and custom metadata & 200 \\
-\code{PATCH} & \code{/\{id\}/metadata} & Merge custom metadata fields & 200 \\
-\code{DELETE} & \code{/\{id\}} & Remove the object & 204 \\
+\code{objects} & Object ID. Stores filename, content type, size, timestamps, whole-object hash, custom metadata and lifecycle state. \\
+\code{chunks} & Chunk ID. References an object and gives its index, byte size and expected hash. The object/index pair is unique. \\
+\code{workers} & Worker ID. Stores the worker URL, last heartbeat and admission state. \\
+\code{replicas} & Chunk ID and worker ID. Associates a chunk with a worker and tracks state and last verification. \\
+\code{worker\_settings} & Worker ID. Stores labels, notes and whether new placements are enabled. \\
+\code{worker\_registrations} & Worker ID. Stores a token that changes with each registration. \\
 \bottomrule
 \end{tabularx}
 
-\smallskip
-The collection URL is \code{/api/v1/objects}. Uploads use
-\code{multipart/form-data} with a \code{file} field and optional
-\code{metadata} field. Invalid requests use JSON errors, including
-\code{400} for invalid input and \code{404} for unknown objects.
+\section{Storage flow and HTTP interfaces}\label{sec:http}
+The default \code{CHUNK\_SIZE} is 1,000,000 bytes. Compose passes the same
+setting to the controller and workers. The final chunk can be smaller.
+The controller names each chunk with the object ID and zero-based index.
+Uploads become \code{READY} only after all chunks have the required
+replicas. Downloads verify every chunk and the assembled SHA-256 and preserve
+the content type.
 
-\topic{Integrity boundary}
-SQLite is the authority for expected hashes. Worker sidecars support local
-disk verification. The acceptance test changes both the chunk bytes and the
-local sidecar, then verifies that the controller still identifies the
-mismatch and restores the expected content.
+\subsection{Public object API}
 
-\clearpage
-\reportsection{Failure detection and repair}
-
-Workers register in \code{JOINING}. Registration and inventory verification
-precede admission as \code{ALIVE}. By default, workers send heartbeats every
-five seconds, and a heartbeat becomes stale after 15 seconds. The recovery
-loop runs every five seconds and periodically verifies inventory and bytes on
-live workers.
-
-\begin{center}
-\begin{tikzpicture}[
-  stage/.style={draw=linegreen, fill=mist, rounded corners=3pt, align=center,
-    text=ink, font=\small\sffamily, minimum width=32mm, minimum height=14mm},
-  flow/.style={-{Stealth[length=2mm]}, draw=forest, line width=.8pt}]
-\node[stage] (detect) at (0,0) {\textbf{Detect}\\Fail or disappear};
-\node[stage] (read) at (3.9,0) {\textbf{Read}\\Verify a survivor};
-\node[stage] (write) at (7.8,0) {\textbf{Place}\\Write to a worker};
-\node[stage] (check) at (11.7,0) {\textbf{Verify}\\Record healthy copy};
-\draw[flow] (detect) -- (read);
-\draw[flow] (read) -- (write);
-\draw[flow] (write) -- (check);
-\end{tikzpicture}
-\end{center}
-\figcaption{2}{Replica repair requires a verified source and a separate eligible destination. Returning workers can reintroduce valid copies, which can be trimmed after two other copies have been verified.}
-
-\topic{What the dashboard means}
-\begin{tabularx}{\linewidth}{@{}p{29mm}X@{}}
+\begin{tabularx}{\linewidth}{@{}l L{68mm} Y r@{}}
 \toprule
-\textbf{State} & \textbf{Interpretation} \\
+\textbf{Method} & \textbf{Path} & \textbf{Operation} & \textbf{Success} \\
 \midrule
-\code{HEALTHY} & The recorded replica passed a verification check. \\
-\code{MISSING} & The worker does not have the expected chunk. \\
-\code{CORRUPT} & The observed bytes failed the expected size or digest check. \\
-\code{DEAD} & A worker state derived from stale heartbeats. Its persisted bytes may remain on disk. \\
+\code{POST} & \path{/api/v1/objects} & Upload a file and optional metadata & 201 \\
+\code{GET} & \path{/api/v1/objects} & List ready objects & 200 \\
+\code{GET} & \path{/api/v1/objects/{id}} & Download the original bytes & 200 \\
+\code{GET} & \path{/api/v1/objects/{id}/metadata} & Read metadata and chunk locations & 200 \\
+\code{PATCH} & \path{/api/v1/objects/{id}/metadata} & Merge custom fields & 200 \\
+\code{DELETE} & \path{/api/v1/objects/{id}} & Remove an object & 204 \\
 \bottomrule
 \end{tabularx}
 
-\topic{Failure outcomes}
-When one of two holders goes offline, reads can fall back to the second holder
-while repair restores two-copy redundancy on eligible workers. If both holders
-of the same chunk are unavailable before repair takes place, downloads of
-that object return \code{503} until a verified copy returns. Restarting a
-worker preserves its named volume. Losing both valid copies permanently
-requires restoring the original bytes from a backup.
+Uploads use \code{multipart/form-data} with a required \code{file} field
+and optional JSON string \code{metadata}. The PATCH body encloses custom
+fields in a \code{metadata} object. Deletion hides an object while the
+controller attempts physical cleanup, including retries when a worker
+returns. Range and conditional downloads are optional extensions.
 
-\topic{Deployment limits}
-All five containers share one host. A host or disk failure can affect the
-whole stack. The single controller and SQLite database are also shared
-dependencies. The 50 MB check establishes end-to-end correctness at that
-size. The project did not measure storage throughput or peak memory.
+\subsection{Error responses}
+Errors use JSON with an \code{error} identifier and a readable
+\code{message}. The assignment's required error statuses are listed below.
 
-\clearpage
-\reportsection{Difficulties faced during development}
+\begin{tabularx}{\linewidth}{@{}r Y@{}}
+\toprule
+\textbf{Status} & \textbf{Usage} \\
+\midrule
+400 & Invalid request fields, malformed JSON, or invalid metadata. \\
+404 & Unknown object or a missing worker chunk. \\
+409 & Conflicting operation, such as a worker PUT whose chunk ID already has different verified content. \\
+500 & Unexpected application or database error. \\
+503 & Required storage unavailable, including a download with no verified copy of a required chunk. \\
+\bottomrule
+\end{tabularx}
 
-\topic{Distinguishing failure scenarios}
+\subsection{Internal controller and worker API}
+
+\begin{tabularx}{\linewidth}{@{}l L{65mm} Y@{}}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Receiver and operation} \\
+\midrule
+\code{POST} & \path{/internal/workers/register} & Controller. Register a worker. \\
+\code{POST} & \path{/internal/workers/heartbeat} & Controller. Refresh worker contact. \\
+\code{PUT} & \path{/internal/chunks/{chunk_id}} & Worker. Persist a chunk. \\
+\code{GET} & \path{/internal/chunks/{chunk_id}} & Worker. Return chunk bytes. \\
+\code{DELETE} & \path{/internal/chunks/{chunk_id}} & Worker. Remove a chunk. \\
+\code{GET} & \path{/internal/workers/{worker_id}/chunks} & Worker. List persisted chunks. \\
+\bottomrule
+\end{tabularx}
+
+\begin{minipage}{\linewidth}
+\subsection{Metadata example}
+This excerpt comes from the live \code{GET} response after adding
+\code{reviewed} with PATCH. It includes one of the two chunk entries.
+{\small
+\begin{verbatim}
+{
+  "object_id": "83be78b8-9236-405c-bdcf-5110ad708809",
+  "name": "placement-demo.bin",
+  "size": 1000001,
+  "content_type": "application/octet-stream",
+  "created_at": "2026-11-23T10:06:49.756878+00:00",
+  "updated_at": "2026-11-23T10:06:49.972399+00:00",
+  "sha256": "8d8e0e34d66c882f42e5ffb789a353a6dfadf23221cc80ff5caf469277a3981d",
+  "num_chunks": 2,
+  "metadata": {
+    "course": "CSE 838",
+    "purpose": "submission demo",
+    "reviewed": true
+  },
+  "chunks": [
+    {
+      "chunk_id": "83be78b8-9236-405c-bdcf-5110ad708809_0",
+      "index": 0,
+      "size": 1000000,
+      "workers": ["worker1", "worker2"]
+    }
+  ]
+}
+\end{verbatim}
+}
+
+\end{minipage}
+
+\section{Failure detection and repair}\label{sec:repair}
+Worker state represents admission and heartbeat freshness. Replica state
+describes a particular copy on one worker.
+
+\subsection{Worker states}
+
+\begin{tabularx}{\linewidth}{@{}L{30mm} Y@{}}
+\toprule
+\textbf{State} & \textbf{Meaning} \\
+\midrule
+\code{JOINING} & Registered and awaiting inventory and integrity verification. \\
+\code{ALIVE} & Verified for admission. A fresh heartbeat makes it eligible for storage and reads. \\
+\code{DEAD} & Marked unavailable after its last heartbeat becomes stale. Physical bytes may persist. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Replica states}
+
+\begin{tabularx}{\linewidth}{@{}L{39mm} Y@{}}
+\toprule
+\textbf{State} & \textbf{Meaning} \\
+\midrule
+\code{HEALTHY} & Copy passed verification when recorded. Availability also depends on the worker. \\
+\code{CORRUPT} & Returned bytes or size failed an integrity check. \\
+\code{MISSING} & The worker confirmed the expected chunk is absent. \\
+\code{PENDING\_DELETE} & Write outcome or cleanup is uncertain and tracked for reconciliation. \\
+\bottomrule
+\end{tabularx}
+
+Workers send heartbeats every five seconds by default. A reconciliation
+pass runs roughly every five seconds and can declare a worker \code{DEAD}
+after 15 seconds without a heartbeat. The periodic live inventory
+verifies recorded copies, including a damaged copy that successful reads
+could bypass. Repair copies verified source bytes to an eligible worker,
+reads them back, and updates the recorded location. A returning worker
+can contribute a surviving source. An extra copy can be dropped after
+two others are verified.
+
+\section{Live demonstration and results}\label{sec:live}
+A fresh GitHub clone at \code{\verifiedcommit} built and started in
+Docker Compose. An isolation file supplied distinct container names,
+separate volumes and a loopback port so the existing workspace remained
+untouched. The base stack admitted four workers without a key. The timed
+run used the controls overlay and an owner key. Docker CLI commands
+stopped and restarted the isolated worker2 service, because dashboard
+container actions target the standard Compose names.
+
+\subsection{Storage, chunking, replication and metadata}
+The 50,000,000-byte object uploaded and downloaded with matching
+SHA-256. The smaller \code{placement-demo.bin} had two chunks placed
+over all four workers. PATCH added one custom field and preserved the
+object checksum. Figure~\ref{fig:placement} shows the real placement
+view.
+
+\begin{figure}[htbp]
+\centering
+\figureimage{.96\linewidth}{placement.png}
+\caption{Placement for the 1,000,001-byte upload. Each chunk has two healthy copies. This view numbers chunks from 1. The inspector and API use zero-based indices.}
+\label{fig:placement}
+\end{figure}
+
+\subsection{Worker stop, fallback, repair and rejoin}
+Stopping worker2 affected \affectedchunks{} chunks of the 50 MB file.
+The controller observed \code{DEAD} during a
+\deficitchunks-chunk replication deficit across both objects. The smaller file still
+downloaded with the same SHA-256 while worker2 was stopped. The controller
+restored two available destinations for every chunk on surviving workers.
+After worker2 rejoined, an independent disk read confirmed exactly two
+hash-valid physical copies per chunk of the 50 MB object.
+
+\begin{figure}[!htbp]
+\centering
+\figureimage{.48\linewidth}{worker-offline.png}\hfill
+\figureimage{.48\linewidth}{worker-rejoined.png}
+\caption{Real cluster snapshots with worker2 offline (left) and admitted after restart (right). The physical copy check verifies surplus cleanup.}
+\label{fig:outage}
+\end{figure}
+
+\subsection{Intentional corruption}
+We appended a byte to a disposable chunk on \code{\corruptworker} and
+confirmed that the on-disk hash changed. A subsequent download matched
+the original object SHA-256. The activity journal showed the affected
+replica classified as \code{CORRUPT}. The chunk hash began with \code{15cb2e950f5f} before injection and \code{7725796abf89} after injection. Recovery restored two verified
+copies, which we checked by reading the worker volumes again
+(Figure~\ref{fig:corruption}). The earlier acceptance run also changed
+the worker's checksum sidecar and verified recovery against the
+controller's independent hash.
+
+\begin{figure}[!htbp]
+\centering
+\begin{minipage}[t]{.45\linewidth}
+\vspace{0pt}
+\figureimage{\linewidth}{corruption-activity.png}
+\end{minipage}\hfill
+\begin{minipage}[t]{.51\linewidth}
+\vspace{0pt}
+\small
+\textbf{Verification from the same run}
+
+The controller recovered a verified copy after detecting the damaged
+bytes on worker1. Independent on-disk checks verified both resulting
+copies. The object checksum matched its original value.
+
+\begin{verbatim}
+Chunk hash before     15cb2e950f5f...
+Chunk hash damaged    7725796abf89...
+Corruption event      631
+Restored locations    worker1, worker3
+\end{verbatim}
+\end{minipage}
+\caption{Dashboard recovery events and independently checked results from the corruption run.}
+\label{fig:corruption}
+\end{figure}
+
+\subsection{Measured timings}
+Times describe one loopback run on Docker Desktop with a 50,000,000-byte
+synthetic binary. Upload time includes receiving the final response.
+Download time includes controller preparation and the receipt of the
+entire body. Outage timings start when the stop command is issued.
+The API was sampled roughly every 60 milliseconds. These observations
+depend on heartbeat phase, polling and host load.
+
+\begin{tabularx}{\linewidth}{@{}Y r@{}}
+\toprule
+\textbf{Measurement} & \textbf{Time (s)} \\
+\midrule
+Upload 50 MB with factor two & \uploadseconds \\
+Download 50 MB through the controller & \downloadseconds \\
+Stop issued to first \code{DEAD} observation & \stoppedseconds \\
+Stop issued to zero under-replicated chunks & \repairedseconds \\
+Start issued to verified rejoin & \rejoinseconds \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Verification and reproduction}
+The fresh clone at \code{\verifiedcommit} passed 369 backend tests,
+42 frontend unit tests and 43 Chromium cases. Pytest skipped the
+opt-in Docker test. The Compose run above exercised the live cases
+separately. The earlier acceptance run at \code{20357e2} also
+verified persistence through a complete stack restart and repair of
+a corrupt chunk with a modified sidecar. The report revision changes
+documentation and adds a setup helper. See the README and development
+guide to reproduce the checks.
+
+\section{Difficulties faced during development}\label{sec:difficulties}
+\subsection{Distinguishing missing, damaged and unreachable copies}
 Recovery was the most challenging part of the project because similar
-symptoms could have different causes. A chunk could be absent from disk,
-present with damaged bytes, or temporarily unreachable because its worker
-was offline. We encountered these distinctions when we began combining
-failures during deployment and testing. An absent chunk is marked
-\code{MISSING} and a failed integrity check can mark a copy
-\code{CORRUPT}. A worker outage is tracked separately so a timeout does
-not cause valid data to be discarded.
+symptoms could have different causes. A chunk could be absent, damaged,
+or temporarily unreachable due to an outage. Combining failures during
+deployment exposed these distinctions. A confirmed missing chunk is
+recorded as \code{MISSING}. A failed integrity check can record
+\code{CORRUPT}. Timeouts can leave the replica record intact while the
+worker becomes unavailable.
 
-\topic{Separating fault injection from detection}
+\subsection{Separating fault injection from detection}
 Our first version of \textbf{Corrupt this copy} immediately marked the
-replica as \code{CORRUPT}. The dashboard showed corruption followed by
-repair, so we initially took that as evidence of detection. The demo
-action itself had supplied the diagnosis. A successful injection now
-changes one stored byte and records the action. A later download or
-background scan verifies the copy and can independently classify it as
-damaged.
+replica \code{CORRUPT}, and the dashboard appeared to demonstrate damage
+detection. The demo action itself had supplied that diagnosis. The
+current action changes a stored byte and records the action. A later
+download or inventory scan can independently detect the mismatch.
 
-\topic{Detecting damage after a successful download}
-A successful download could hide a damaged replica. When the controller
-read the healthy copy first, the user got the correct file even though
-only one valid copy remained. We added periodic verification of live
-workers' stored copies against the controller's checksums. Heartbeats tell
-us whether a worker has communicated recently. Inventory and checksum
-checks tell us which expected chunks it has and whether their bytes
-match.
+A successful download could also hide damage when the controller read the
+healthy copy first. Periodic verification now compares stored copies with
+the controller's checksum even when client reads succeed. Heartbeats
+measure recent contact. Inventory and checksum checks measure whether
+the expected bytes are present and intact.
 
-\topic{Reconciling a worker that returns}
-After roughly 15 seconds without a heartbeat, the controller can mark a
-worker \code{DEAD} and use surviving valid copies to restore redundancy.
-When the worker returns, the controller checks its actual inventory before
-readmission. An expected chunk may be missing, a returning copy may be
-the only surviving source, or repair may already have created two healthy
-copies elsewhere. The controller can remove a surplus copy once it
-verifies two others. If both copies of a required chunk are damaged and
-no verified source survives, the affected object remains unavailable until
-valid data is restored.
+\subsection{Handling concurrent operations and returning workers}
+A returning worker might still hold the only readable copy of a chunk,
+or it might have a surplus copy after repair elsewhere. Verified
+readmission and conservative surplus cleanup handle both cases. Cleanup
+can also overlap with an upload or delete. Per-object locks and
+rechecking the manifest protect in-progress uploads and prevent a repair
+from racing past an object deletion.
 
-The recovery tests check the evidence behind each outcome, including
-how damage was detected, the number of valid copies after repair, and
-what changed when the offline worker returned.
+\subsection{Maintaining complete uploads and verified downloads}
+A worker can fail after receiving a partial upload. Keeping the object
+in \code{UPLOADING} lets the controller complete replication before
+publishing it, or clean up after failure. For downloads, preparing the
+verified file on disk adds latency and requires temporary space. The
+controller can then report an unreadable object with a JSON error
+before sending binary data. The tests cover failed uploads, cleanup,
+overlapping operations and corrupted copies.
 
-\clearpage
-\reportsection{Consistency and file transfers}
+\subsection{Diagnosing the hosted presentation}
+The Vercel page can load while the controller PC is unreachable. The
+frontend exposes the controller address, a connection test and a
+separate owner key field. Browser calls go directly through the HTTPS
+tunnel to the controller and use an allowed origin. The local
+presentation uses the same origin as the API.
 
-\topic{Publishing complete uploads}
-A worker can fail after receiving some chunks or between writes of the
-same chunk. The controller keeps the object in \code{UPLOADING} while
-it places replicas and exposes it only after the database can commit
-\code{READY}. A failed or cancelled upload goes through cleanup, and
-uncertain writes can remain tracked for a later attempt. API tests force
-a failed upload and check that clients cannot list or download the
-incomplete object.
+\section{Comparison with cloud object storage}\label{sec:cloud}
+Artaud's copies share one PC. Cloud storage can place data across
+physically separate failure domains, with protections depending on
+the selected product and redundancy option.
 
-\topic{Verifying a download before sending it}
-A missing chunk discovered halfway through a download would otherwise
-leave the client with a partial file and an HTTP success status. The
-controller builds the file in temporary disk storage one verified chunk
-at a time and checks the whole-object hash before sending a response.
-This design uses temporary disk space and adds preparation time before
-the client receives bytes. Tests check that an unreadable object returns
-a JSON \code{503} and cleans up its temporary file. The live run also
-compares the original and retrieved hashes for a 50 MB file.
-
-\topic{Coordinating uploads, repairs and deletions}
-Cleanup during an upload could mistake its chunks for abandoned data.
-At the same time, repair could place a replacement while another request
-was deleting the file. The controller uses a lock per object and rereads
-the relevant state after taking the lock. It protects active uploads and
-can retry cleanup when a worker that missed deletion returns. Tests
-exercise an inventory scan waiting for an upload, deletion waiting for
-repair, and recovery of an interrupted delete.
-
-\topic{Diagnosing the hosted dashboard connection}
-Vercel could serve the dashboard even when the controller on our PC
-was unreachable. We kept the controller's HTTPS address configurable
-in the browser, with a connection test and a separate owner key field.
-The remote dashboard sends API requests directly to the controller
-through the tunnel, and the controller allows requests from configured
-browser origins. The local dashboard uses the same origin as the API,
-so the local demonstration can run without the tunnel.
-
-\clearpage
-\reportsection{Dashboard walkthrough}
-
-\begingroup
-\setlength{\fboxsep}{0pt}
-\setlength{\fboxrule}{0.5pt}
-\begin{center}
-\fcolorbox{linegreen}{white}{\includegraphics[
-  width=.90\linewidth, viewport=228 2170 1195 3175, clip
-]{figures/cluster.png}}
-\end{center}
-\endgroup
-
-\figcaption{3}{The cluster view from the live acceptance run. The topology shows four admitted workers and the placement table shows separate holders for the two chunks of a synthetic upload. The screenshot is cropped to the topology and placement table.}
-
-Open \textbf{Cluster} after an upload and select the object under
-\textbf{Where each chunk lives}. Use the placement table to identify a worker
-holding one copy before simulating an outage.
-
-\clearpage
-\reportsection{Inspecting an object}
-
-\begingroup
-\setlength{\fboxsep}{0pt}
-\setlength{\fboxrule}{0.5pt}
-\begin{center}
-\fcolorbox{linegreen}{white}{\includegraphics[
-  width=.98\linewidth
-]{figures/inspector.png}}
-\end{center}
-\endgroup
-
-\figcaption{4}{The object inspector during the same live browser run.
-The 1,000,001-byte upload produced a 1,000,000-byte chunk and a one-byte
-tail. Each chunk shows two recorded locations.}
-
-The \textbf{Details} tab shows the whole-object checksum and offers local
-file verification. \textbf{Metadata} edits custom fields.
-\textbf{Chunks} lists per-chunk hashes and worker locations. During a
-demonstration, use the manifest to show which copies are affected by a
-worker stop, then watch the placement and recovery views converge.
-
-\topic{Demonstration sequence}
-Upload a disposable file, inspect placement, then download and compare
-the checksum. Stop \code{worker2}, download again with its surviving
-counterpart, and wait for repair. Restart the worker and verify readmission.
-With the demo overlay, inject corruption into a replica with a healthy
-counterpart and observe verification and repair.
-
-\clearpage
-\reportsection{Verification and reproduction}
-
-Validation used a clean snapshot of GitHub \code{master} at \code{\testedcommit}.
-The five-container run used disposable containers and volumes. The existing
-workspace data was outside that cluster.
-
-\begin{tabularx}{\linewidth}{@{}p{40mm}X@{}}
+\begin{tabularx}{\linewidth}{@{}L{35mm} Y@{}}
 \toprule
-\textbf{Check} & \textbf{Result} \\
+\textbf{Service or option} & \textbf{Placement and protection} \\
 \midrule
-Compose and builds & Base and demo overlay configurations validated. Controller and worker images and the frontend production build completed. \\
-Backend suite & 369 passed. One opt-in live test was skipped here and run separately below. The suite emitted one Starlette test-client deprecation warning. \\
-Frontend suite & 42 Vitest tests and 43 Chromium browser cases passed. \\
-C1 and C2 & All four workers reached verified admission. A 5,000,001-byte object reconstructed to its original SHA-256 with two copies per chunk. \\
-C4 & Reads survived a stop of \code{worker2}. Redundancy was restored, the worker rejoined and surplus copies were trimmed. A deliberately modified chunk and sidecar were detected and repaired. \\
-C5 and API & Persistent restart, 50,000,000-byte upload and download, all six public operations and physical delete cleanup passed. \\
-Live browser & A real browser uploaded through the controller, inspected the manifest, downloaded verified bytes and removed the synthetic object. \\
+Amazon S3 Standard & Stores objects across at least three Availability Zones in a region and verifies integrity with checksums. \href{https://docs.aws.amazon.com/AmazonS3/latest/userguide/DataDurability.html}{AWS documentation}. \\
+Azure Blob Storage & LRS replicates within one datacenter. ZRS synchronously replicates across three availability zones in the primary region. Geo-redundant options also replicate to a secondary region. \href{https://learn.microsoft.com/en-us/azure/storage/common/storage-redundancy}{Azure documentation}. \\
+Google Cloud Storage & Regional, dual-region and multi-region buckets have different placement guarantees. Regional buckets store redundantly across zones, and Cloud Storage checks and repairs stored data. \href{https://cloud.google.com/storage/docs/availability-durability}{Google Cloud documentation}. \\
 \bottomrule
 \end{tabularx}
 
-\topic{Run the same acceptance check}
-From the repository root, build the two integration images as documented in
-the README. Install the frontend dependencies and Chromium to include
-browser verification. Run the check from the repository root.
+Erasure coding divides data into data and parity fragments. A
+Reed--Solomon scheme with three data and two parity fragments can
+reconstruct from any three of the five fragments when they are correctly
+placed. It trades CPU and rebuild work for lower storage overhead than
+keeping full copies. Artaud uses two complete copies per chunk for the
+assignment. \href{https://docs.ceph.com/en/latest/rados/operations/erasure-code/}{Ceph erasure coding}.
 
-{\small\begin{verbatim}
-python tests/test_end_to_end.py --large --browser
-\end{verbatim}}
+\section{Conclusion}
+The local demonstration showed that Artaud can retrieve an intact
+object during a single worker outage, restore replica count on surviving
+workers and detect a deliberately damaged copy. The design depends on
+one controller and a single physical host. Loss of every valid copy
+of one chunk makes the object unavailable. Temporary disk space also
+limits large verified downloads. Future work could place replicas
+across independent hosts, replicate the metadata and control plane,
+and add backup or version retention for recovery from deletion.
 
-For a manual demo, follow the README's \textit{Run locally} and
-\textit{Demo checklist} sections. Use the controller API documentation at
-\code{http://127.0.0.1:8000/docs} for route discovery.
-
-\topic{Project references}
+\subsection*{Project references}
 \begin{itemize}
 \setlength{\itemsep}{2pt}
-\item Assignment brief and project plan, under \code{docs/}.
-\item Reproduction commands, architecture, and HTTP/SQLite contracts.
-  \href{\repo/tree/20357e2c03212e9e3d8765286f69cbbbbfe62233}{Source snapshot}.
+\item \href{\repo/blob/master/docs/Mini_Distributed_Cloud_Object_Store.pdf}{Assignment brief} and
+\href{\repo/blob/master/docs/Mini_Distributed_Object_Store_Final_Updated_Plan.pdf}{team implementation plan}.
+\item \href{\repo/blob/master/README.md}{Local demo commands},
+\href{\repo/blob/master/docs/DEVELOPMENT.md}{test instructions}, and
+\href{\repo/blob/master/contracts/api-contract.md}{HTTP contract}.
+\item \href{\repo/tree/8ea6280}{Source snapshot for the fresh Compose demonstration}.
 \end{itemize}
-
 \end{document}

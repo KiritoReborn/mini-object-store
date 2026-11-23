@@ -92,7 +92,7 @@ Controls use 7px corners, the inline upload surface 11px, dialogs 14px and type 
 
 - Do preserve real-data and stale/unknown distinctions. Do label replication as a target when it is policy rather than an observed result.
 - Do keep operational tasks visible and errors recoverable. Do test empty, loading, error, queued, stored and unavailable states.
-- Do preserve the direct controller API connection and B-owned recovery boundary; local same-origin and remote HTTPS configurations share the same file operations.
+- Do preserve the direct controller API connection and boundary between the dashboard and the recovery service; local same-origin and remote HTTPS configurations share the same file operations.
 - Don't ship QA fixture data, mock network handlers, design briefs or direction metadata in the production UI.
 - Don't add speculative analytics, cloud-provider claims, unsupported capacity percentages or decorative charts.
 
