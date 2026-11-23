@@ -68,7 +68,16 @@ docker compose stop
 
    ```sh
    object_id=REPLACE_WITH_OBJECT_ID
-   chunk_id=$(curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" "http://127.0.0.1:8000/api/v1/objects/$object_id/metadata" | jq -er '.chunks[] | select(.index == 0 and (.available_workers | length) == 2 and (.available_workers | index("worker1")) != null) | .chunk_id') &&
+   chunk_id=$(
+     curl -fsS -H "X-Artaud-Key: ${ARTAUD_API_KEY:-}" \
+       "http://127.0.0.1:8000/api/v1/objects/$object_id/metadata" |
+       jq -er '
+         .chunks[]
+         | select(.index == 0 and (.available_workers | length) == 2)
+         | select((.available_workers | index("worker1")) != null)
+         | .chunk_id
+       '
+   ) &&
      docker compose exec -T worker1 sh -c 'printf x >> "/data/chunks/$1"' artaud-demo "$chunk_id"
    ```
 

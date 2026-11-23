@@ -91,7 +91,7 @@ records metadata, expected checksums and replica locations. The controller
 verifies a complete object before serving it and restores lost redundancy from a
 verified copy. A fresh Compose deployment and a live run demonstrate the
 required storage, chunking, replication, metadata, worker-outage and corruption
-scenarios. In a single Docker Desktop loopback run, a 50,000,000-byte object
+scenarios. In the timed Docker Desktop loopback run, a 50,000,000-byte object
 uploaded in \uploadseconds{} seconds and downloaded in \downloadseconds{} seconds.
 Worker2 was first observed \code{DEAD} at \stoppedseconds{} seconds after the stop
 command, and two-copy redundancy was restored at \repairedseconds{} seconds.
@@ -124,8 +124,8 @@ R08 & Custom metadata & An upload supplies custom fields and a PATCH adds a fiel
 R09 & Six public REST operations & Each method and success status is listed in Section~\ref{sec:http}. \\
 R10 & Six internal operations & Worker registration, heartbeat, chunk operations and inventory are listed in Section~\ref{sec:http}. \\
 R11 & Failure detection and fallback & Stop worker2. Observe its state change and retrieve the object (Figure~\ref{fig:outage}). \\
-R12 & Restore replication & Measured replica deficit returned to zero, then the rejoin check confirmed two valid physical copies per chunk. \\
-R13 & Detect and repair corruption & A changed chunk hash, a corruption event and a verified download establish detection and recovery. \\
+R12 & Restore replication & Table~\ref{tab:timings} records restored redundancy. Disk checks after rejoin confirmed two valid copies per chunk. \\
+R13 & Detect and repair corruption & Figure~\ref{fig:corruption} shows detection and repair. The verified download retained its original SHA-256. \\
 R14 & Local Docker deployment & Fresh clone built and ran with Compose. One loopback port serves the API and UI. \\
 R15 & Setup, use and required demos & The README provides commands. Section~\ref{sec:live} records all six demonstrations. \\
 \bottomrule
@@ -252,7 +252,7 @@ Errors use JSON with an \code{error} identifier and a readable
 404 & Unknown object or a missing worker chunk. \\
 409 & Conflicting operation, such as a worker PUT whose chunk ID already has different verified content. \\
 500 & Unexpected application or database error. \\
-503 & Required storage unavailable, including a download with no verified copy of a required chunk. \\
+503 & \nolinkurl{OBJECT_UNAVAILABLE} when a download has no verified copy of a required chunk, or \nolinkurl{STORAGE_UNAVAILABLE} when an upload cannot confirm two replicas. \\
 \bottomrule
 \end{tabularx}
 
@@ -348,12 +348,13 @@ two others are verified.
 
 \section{Live demonstration and results}\label{sec:live}
 A fresh GitHub clone at \code{\verifiedcommit} built and started in
-Docker Compose. An isolation file supplied distinct container names,
+Docker Compose. A Compose override file supplied distinct container names,
 separate volumes and a loopback port so the existing workspace remained
 untouched. The base stack admitted four workers without a key. The timed
 run used the controls overlay and an owner key. Docker CLI commands
-stopped and restarted the isolated worker2 service. The screenshots and
-metadata excerpt come from a follow-up run using the updated dashboard.
+stopped and restarted the isolated worker2 service. The screenshots and metadata
+are from the follow-up run. Figure~\ref{fig:outage} also reports recorded copy
+counts from the timed run.
 
 \subsection{Storage, chunking, replication and metadata}
 The 50,000,000-byte object uploaded and downloaded with matching
@@ -375,7 +376,7 @@ Worker2 held \affectedchunks{} from the 50 MB object and one from
 \code{placement-demo.bin}. The smaller file still downloaded with its
 original SHA-256 while worker2 was stopped. The controller restored two
 available copies per chunk on surviving workers. Figure~\ref{fig:outage}
-shows worker2 offline and readmitted.
+shows worker2's states. Table~\ref{tab:timings} compares the outage timings.
 
 \begin{figure}[htbp]
 \centering
@@ -389,7 +390,7 @@ shows worker2 offline and readmitted.
 \textbf{Worker2 readmitted}\par\smallskip
 \figureimage{\linewidth}{worker-rejoined.png}
 \end{minipage}
-\caption{Worker2 shows zero copies after surplus cleanup. Independent disk checks confirmed two SHA-256-valid copies per 50 MB object chunk. In the timed run, dashboard counts on workers 1, 3 and 4 went from 26, 28 and 27 while worker2 was offline to 26, 39 and 39 after readmission.}
+\caption{Worker2 shows zero copies after surplus cleanup. Independent disk checks confirmed two SHA-256-valid copies per 50 MB object chunk. In the timed run, dashboard counts on workers 1, 3 and 4 went from 26, 28 and 27 while worker2 was offline to 26, 39 and 39 after readmission (104 copies for 52 chunks).}
 \label{fig:outage}
 \end{figure}
 
@@ -430,56 +431,65 @@ Restored hash & \code{59b3a1cb08de} \\
 Both copies passed an independent disk check. Restored locations were
 worker1, worker4.
 
-\textbf{Follow-up timeline}
-
-\begin{tabularx}{\linewidth}{@{}Y l@{}}
-\toprule
-\textbf{Stage} & \textbf{UTC or elapsed time} \\
-\midrule
-Placement object created & \code{10:26:18.352} UTC \\
-Worker2 stop command issued & Elapsed timer starts \\
-Replica deficit reached zero & 17.88 s after stop \\
-Fault injected after readmission & \code{10:26:49.682} UTC \\
-\bottomrule
-\end{tabularx}
-
-Worker2 was first observed \code{DEAD} 17.71 s after stop. It passed
-readmission 4.94 s after its start command.
 \end{minipage}
 \caption{Dashboard events use local time (UTC+5:30). The table uses UTC. The ``Copy transfer unsuccessful'' event marks the unverified response from the download that detected the damage. The 512-event journal evicted older entries during the 50 MB workload.}
 \label{fig:corruption}
 \end{figure}
 
 \subsection{Failure limit when no valid copy is reachable}
-In a separate terminal test, we stopped worker2 and corrupted the other copy on worker1. The
-download returned \verb|503 OBJECT_UNAVAILABLE| because the controller
-could not find verified bytes. After worker2 returned with its intact
-copy, the file downloaded with its original SHA-256 and
-recovery restored two valid physical replicas.
+In a separate terminal test, we stopped worker2 and damaged worker1's copy.
+The download returned HTTP 503.
+
+{\small
+\begin{verbatim}
+{"error":"OBJECT_UNAVAILABLE",
+ "message":"No verified readable copy of a required chunk"}
+\end{verbatim}
+}
+
+After worker2 returned with its intact copy, the file downloaded with its
+original SHA-256 and recovery restored two valid physical replicas.
 
 \subsection{Measured timings}
-The table below describes the earlier loopback run at \code{\verifiedcommit}
-on Docker Desktop with a 50,000,000-byte synthetic binary. Upload time includes receiving the final response.
-Download time includes controller preparation and the receipt of the
-entire body. Outage timings start when the stop command is issued.
-The API was sampled roughly every 60 milliseconds. These observations
-depend on heartbeat phase, polling and host load.
+Both Docker Desktop loopback runs used a 50,000,000-byte synthetic object.
+Download time includes preparation and transfer. Heartbeat phase and polling
+affect when state changes are first observed.
 
-\begin{tabularx}{\linewidth}{@{}Y r@{}}
+\begin{minipage}{\linewidth}
+\captionof{table}{Seconds measured in the timed run at \href{\repo/tree/8ea6280}{\code{\verifiedcommit}} and the follow-up run.}
+\label{tab:timings}
+\begin{tabularx}{\linewidth}{@{}Y r r@{}}
 \toprule
-\textbf{Measurement} & \textbf{Time (s)} \\
+\textbf{Measurement (s)} & \textbf{Timed run} & \textbf{Follow-up run} \\
 \midrule
-Upload 50 MB with factor two & \uploadseconds \\
-Download 50 MB through the controller & \downloadseconds \\
-Stop issued to first \code{DEAD} observation & \stoppedseconds \\
-Stop issued to zero under-replicated chunks & \repairedseconds \\
-Start issued to verified rejoin & \rejoinseconds \\
+Upload 50 MB with factor two & \uploadseconds & 3.61 \\
+Download 50 MB through the controller & \downloadseconds & 0.98 \\
+Stop command to first \code{DEAD} observation & \stoppedseconds & 17.71 \\
+Stop command to zero replica deficit & \repairedseconds & 17.88 \\
+Start command to verified readmission & \rejoinseconds & 4.94 \\
 \bottomrule
 \end{tabularx}
+\end{minipage}
 
-The first \code{DEAD} observation came \stoppedseconds{} seconds after
-the stop command. The deficit reached zero at \repairedseconds{} seconds.
-The two observations were 1.88 seconds apart.
+In the timed run, the first \code{DEAD} and zero-deficit observations were
+1.88 seconds apart.
+
+\begin{minipage}{\linewidth}
+\captionof{table}{Follow-up event order. The recorder captured UTC for creation and injection and measured recovery from the relevant command.}
+\begin{tabularx}{\linewidth}{@{}Y l l@{}}
+\toprule
+\textbf{Event} & \textbf{UTC} & \textbf{Elapsed observation} \\
+\midrule
+Placement object created & \code{10:26:18.352} & \textemdash{} \\
+Worker2 stop issued & \textemdash{} & \textemdash{} \\
+Worker2 observed \code{DEAD} & \textemdash{} & 17.71 s after stop \\
+Replica deficit reached zero & \textemdash{} & 17.88 s after stop \\
+Worker2 start issued & \textemdash{} & \textemdash{} \\
+Worker2 readmitted & \textemdash{} & 4.94 s after start \\
+Fault injected & \code{10:26:49.682} & \textemdash{} \\
+\bottomrule
+\end{tabularx}
+\end{minipage}
 
 \subsection{Verification and reproduction}
 The fresh clone at \code{\verifiedcommit} passed 369 backend tests,
@@ -556,7 +566,7 @@ assignment. \href{https://docs.ceph.com/en/latest/rados/operations/erasure-code/
 \section{Conclusion}
 The local demonstration showed that Artaud can retrieve an intact
 object during a single worker outage and repair degraded replicas. In
-one local Docker Desktop loopback run, uploading the 50 MB object took
+the timed Docker Desktop loopback run, uploading the 50 MB object took
 \uploadseconds{} seconds, \code{DEAD} was observed at \stoppedseconds{}
 seconds, and the replica deficit reached zero at \repairedseconds{} seconds.
 The design depends on one controller and a single physical host. Loss of every valid copy
@@ -573,6 +583,5 @@ and add backup or version retention for recovery from deletion.
 \item \href{\repo/blob/master/README.md}{Local demo commands},
 \href{\repo/blob/master/docs/DEVELOPMENT.md}{test instructions}, and
 \href{\repo/blob/master/contracts/api-contract.md}{HTTP contract}.
-\item \href{\repo/tree/8ea6280}{Source snapshot for the fresh Compose demonstration}.
 \end{itemize}
 \end{document}

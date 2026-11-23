@@ -140,13 +140,13 @@ On 23 November 2026, a clean snapshot at `20357e2` passed 369 backend tests, 42 
 
 A separate fresh clone at `8ea6280` also passed 369 backend tests, 42 frontend unit tests and 43 Chromium cases. The isolated Docker Desktop loopback run used one 50,000,000-byte object with matching upload and download SHA-256.
 
-| Measurement | Time |
-| --- | ---: |
-| Upload 50 MB | 3.53 s |
-| Download 50 MB | 0.88 s |
-| Stop command to first `DEAD` observation | 17.21 s |
-| Stop command to zero replica deficit | 19.09 s |
-| Start command to verified readmission | 6.07 s |
+| Measurement | Timed run (`8ea6280`) | Follow-up run |
+| --- | ---: | ---: |
+| Upload 50 MB | 3.53 s | 3.61 s |
+| Download 50 MB | 0.88 s | 0.98 s |
+| Stop command to first `DEAD` observation | 17.21 s | 17.71 s |
+| Stop command to zero replica deficit | 19.09 s | 17.88 s |
+| Start command to verified readmission | 6.07 s | 4.94 s |
 
 See the follow-up corruption and terminal recovery results in the [report](report/artaud-report.pdf).
 
